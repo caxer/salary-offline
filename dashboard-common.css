@@ -1,0 +1,982 @@
+/* ============================================================================
+   Shared design system for salary / billing / trades dashboards.
+   Loaded via <link> so it works fine when opening the HTML directly (file://).
+   Single source of truth for: tokens, shell, tabs, tables, buttons, inputs,
+   tooltips, scrollbars, chart containers, badges. Page <style> blocks keep
+   ONLY truly page-specific rules (yoy-table, year-table widths, analysis-grid).
+   ============================================================================ */
+
+:root {
+  --bg-primary: #000000;
+  --bg-secondary: #f5f5f7;
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-dark: #1d1d1f;
+  --text-muted: #86868b;
+  --accent-color: #0071e3;
+  --accent-secondary: #2997ff;
+  --accent-hover: #0077ed;
+  --link-color: #0066cc;
+  --success-color: #34d399;
+  --warning-color: #fbbf24;
+  --danger-color: #f87171;
+  --glass-bg: rgba(29, 29, 31, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --dark-surface-1: #272729;
+  --dark-surface-2: #262628;
+  --card-radius: 8px;
+  --transition-speed: 0.25s;
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Merged from trades.html (was duplicated per-page) */
+  --bg-card: #272729;
+  --bg-input: rgba(118, 118, 128, 0.24);
+  --bg-input-hover: rgba(118, 118, 128, 0.32);
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-hover-light: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-default: rgba(255, 255, 255, 0.15);
+  --border-active: #0071e3;
+  --sticky-bg: rgba(9, 9, 11, 0.98);
+  --sticky-col-bg: rgba(9, 9, 11, 0.98);
+  --header-bg: rgba(9, 9, 11, 0.98);
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --accent-blue: #0071e3;
+  --accent-blue-hover: #2997ff;
+  --accent-green: #34c759;
+  --accent-red: #ff3b30;
+  --accent-red-dark: #d63027;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    "Noto Sans TC",
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  width: 100vw;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+#root {
+  min-height: 100%;
+  width: 100%;
+}
+
+.app-container,
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  box-sizing: border-box;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.07;
+  letter-spacing: -0.028em;
+}
+
+.header .subtitle {
+  font-size: 1.06rem;
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 400;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Content Area */
+.content-area,
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: visible;
+}
+
+/* Cards — .card is an alias of .glass-card for cross-page compat */
+.glass-card,
+.card {
+  background: #272729;
+  background: var(--bg-card);
+  border-radius: var(--card-radius);
+  border-radius: var(--radius-lg, var(--card-radius));
+  padding: 24px;
+  padding: var(--spacing-lg, 24px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
+}
+
+.glass-card h3,
+.card h3 {
+  margin: 0 0 16px 0;
+  font-size: 1.1rem;
+  color: #ffffff;
+  flex-shrink: 0;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+
+/* Tabs — underline style (single canonical definition) */
+.tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.65);
+  padding: 12px 20px;
+  border-radius: 0;
+  cursor: pointer;
+  transition: all var(--transition-speed) ease;
+  font-weight: 500;
+  font-size: 0.9rem;
+  position: relative;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.tab-btn:hover {
+  color: #ffffff;
+  background: var(--bg-hover);
+}
+
+.tab-btn.active {
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+.tab-btn.active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-color);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-btn:focus-visible,
+.action-btn:focus-visible,
+.btn:focus-visible,
+.btn-primary:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Action / generic buttons — canonical set (tab-btn stays nav-only) */
+.action-btn,
+.btn-primary,
+.btn {
+  padding: 8px 15px;
+  border-radius: 8px;
+  background: #0071e3;
+  background: var(--accent-blue);
+  color: #ffffff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all var(--transition-speed) ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.action-btn:hover,
+.btn-primary:hover,
+.btn:hover {
+  background: var(--accent-hover);
+  background: var(--accent-blue-hover);
+}
+
+.btn-ghost {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-hover-light);
+}
+
+.btn-danger {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid var(--danger-color);
+  color: var(--danger-color);
+}
+
+.btn-danger:hover {
+  background: var(--danger-color);
+  color: #fff;
+}
+
+.btn:disabled,
+.action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Segmented control (opt-in pill style; replaces trades V2 tabs hack) */
+.segmented {
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg);
+}
+
+.segmented .seg-btn {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+}
+
+.segmented .seg-btn.active {
+  background: rgba(0, 113, 227, 0.15);
+  color: var(--accent-blue-hover);
+}
+
+/* Tables — canonical base */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+th,
+td {
+  padding: 12px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+th {
+  background: var(--header-bg);
+  color: var(--text-secondary);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  text-align: center;
+  position: sticky;
+  left: 0;
+  background: var(--sticky-col-bg);
+  z-index: 30;
+  border-right: 1px solid var(--glass-border);
+}
+
+thead th:first-child {
+  z-index: 50;
+}
+
+tbody tr:hover td:not([style*="sticky"]) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Thin visible scrollbars (replaces display:none which hid scroll affordance) */
+.table-container {
+  overflow-x: auto;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  border-radius: 8px;
+  border: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.table-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  display: block;
+}
+
+.table-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.table-container input,
+.table-container select,
+.table-container textarea {
+  pointer-events: auto;
+}
+
+/* Scrollable dashboard column helper (billing/salary nhi-dashboard) */
+.nhi-dashboard {
+  flex: 1;
+  min-height: 0;
+  padding-right: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+.nhi-dashboard::-webkit-scrollbar {
+  width: 6px;
+}
+
+.nhi-dashboard::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nhi-dashboard::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.nhi-dashboard::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Chart container for ChartView (canvas wrapper). Layout grids use
+   .analysis-layout instead — do NOT reuse .chart-container for layout. */
+.chart-container {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  min-height: min(420px, 55vh);
+  min-width: 0;
+}
+
+.chart-container canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.analysis-layout {
+  display: flex;
+  gap: 15px;
+  margin-top: 15px;
+  min-height: clamp(420px, 55vh, 560px);
+}
+
+/* Status / badges */
+.match-success,
+.positive {
+  color: #34d399;
+  color: var(--success-color);
+  font-weight: 600;
+}
+
+.match-error,
+.negative {
+  color: #f87171;
+  color: var(--danger-color);
+  font-weight: 600;
+}
+
+.match-error {
+  cursor: help;
+}
+
+/* Tooltip — canonical (.tooltip-container is a legacy alias) */
+.tooltip,
+.tooltip-container {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip .tooltiptext,
+.tooltip-container .tooltip-text {
+  visibility: hidden;
+  width: max-content;
+  max-width: min(280px, 80vw);
+  background-color: #09090b;
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  text-align: center;
+  border-radius: 8px;
+  padding: 10px;
+  position: absolute;
+  z-index: 100;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.tooltip:hover .tooltiptext,
+.tooltip:focus-within .tooltiptext,
+.tooltip-container:hover .tooltip-text,
+.tooltip-container:focus-within .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Form elements — canonical */
+input:focus-visible,
+select:focus-visible,
+details:focus-within summary,
+button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 4px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0071e3;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: #0077ed;
+  transform: scale(1.1);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0071e3;
+  cursor: pointer;
+  border: none;
+}
+
+.edit-input,
+.editable-input,
+.editable-input-sm {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: right;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  min-width: 0;
+}
+
+.edit-input:hover,
+.editable-input:hover {
+  border-color: var(--accent-color);
+}
+
+.edit-input:focus,
+.editable-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.3);
+  outline: none;
+}
+
+.edit-input[type="number"] {
+  text-align: right;
+}
+
+.chart-select {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff !important;
+  padding: 6px 2rem 6px 12px;
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.65)' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+.chart-select option {
+  background: #1a1a2e;
+  color: #ffffff;
+}
+
+/* Details / summary disclosure */
+details summary {
+  list-style: none;
+  transition: background 0.2s;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+details summary::-webkit-details-marker {
+  display: none;
+}
+
+details summary::before {
+  content: "›";
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  transition: transform 0.2s;
+  color: var(--accent-color);
+}
+
+details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+details summary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Futures grid helper (trades layout shell) */
+.futures-grid {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* ============================================================================
+   Dashboard UI kit (billing / salary): segmented nav, pills, chips, KPI strip,
+   delta pills, empty state, unsaved badge.
+   ============================================================================ */
+:root {
+  --tbl-head: #1c1c1e;
+  --tbl-group: #232326;
+  --tbl-row: #111113;
+}
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.dash-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.segmented.seg-sm {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(118, 118, 128, 0.18);
+  flex-shrink: 0;
+}
+.segmented.seg-sm .seg-btn {
+  flex: none;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  border-radius: 7px;
+}
+.segmented .seg-btn:hover:not(.active) {
+  color: var(--text-primary);
+}
+.segmented.seg-sm .seg-btn.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.year-pills {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  max-width: 100%;
+}
+.year-pills::-webkit-scrollbar {
+  display: none;
+}
+.year-pill,
+.chip-toggle {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+.year-pill:hover,
+.chip-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.year-pill.active {
+  background: var(--text-primary);
+  color: #000;
+  border-color: var(--text-primary);
+  font-weight: 600;
+}
+.year-pill.add {
+  border-style: dashed;
+}
+.chip-toggle[aria-pressed="true"] {
+  color: var(--accent-secondary);
+  border-color: rgba(41, 151, 255, 0.5);
+  background: rgba(41, 151, 255, 0.12);
+}
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  gap: 6px;
+}
+.btn-warning {
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid var(--warning-color);
+  color: var(--warning-color);
+}
+.btn-warning:hover {
+  background: rgba(251, 191, 36, 0.22);
+}
+.dirty-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--warning-color);
+  white-space: nowrap;
+}
+.dirty-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.card-head h3 {
+  margin: 0;
+}
+.card-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.card-tools {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* KPI strip (Monarch / Copilot 式摘要卡) */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+.kpi-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.kpi-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.kpi-value {
+  font-family: "Inter", "Noto Sans TC", sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kpi-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* YOY delta pill：支出增加＝紅、減少＝綠 */
+.delta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 56px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.delta.bad {
+  color: var(--danger-color);
+  background: rgba(248, 113, 113, 0.12);
+}
+.delta.good {
+  color: var(--success-color);
+  background: rgba(52, 211, 153, 0.12);
+}
+.delta.flat {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Empty state */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 60vh;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  border: 1.5px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.empty-state h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.empty-state p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.th-sub {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+/* Responsive — shared breakpoints */
+@media (max-width: 1024px) {
+  .analysis-layout {
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .chart-container {
+    min-height: 360px;
+  }
+
+  .futures-grid {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-container,
+  .container {
+    padding: 12px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .glass-card,
+  .card {
+    padding: 16px;
+  }
+
+  table th,
+  table td {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 600px) {
+  .kpi-grid {
+    gap: 8px;
+    grid-auto-flow: column;
+    grid-auto-columns: 46%;
+    grid-template-columns: none;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .kpi-grid::-webkit-scrollbar {
+    display: none;
+  }
+  .kpi-card {
+    padding: 12px;
+    scroll-snap-align: start;
+  }
+  .kpi-value {
+    font-size: 1.2rem;
+  }
+
+  .tabs {
+    margin-bottom: 16px;
+  }
+
+  .tab-btn {
+    padding: 10px 14px;
+    font-size: 0.85rem;
+  }
+
+  .header h1 {
+    font-size: 1.75rem;
+  }
+}

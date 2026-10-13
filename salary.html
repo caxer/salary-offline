@@ -1,0 +1,2505 @@
+<!doctype html>
+<html lang="zh-TW"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#101419">
+    <title>薪資看板</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="薪資看板">
+
+    <!-- 第三方腳本：鎖定版本 + SRI（integrity）雜湊，CDN 檔案被竄改時瀏覽器會拒絕執行，
+         避免輸入的密碼被竊取。升級版本時要一併更新 integrity。 -->
+    <!-- React & Babel -->
+    <script src="vendor/react.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+    <script src="vendor/react-dom.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+    <script src="vendor/babel.js" integrity="sha384-oLbIC13I/8DNBviftYPfOFQS5DC2WUmwk0SyIPmnzu1Ui+vYyATSSBJiJ5ETa4o/" crossorigin="anonymous"></script>
+    <!-- Babel 8 defaults the JSX runtime to "automatic", which emits
+         `import {jsx} from "react/jsx-runtime"` and breaks this UMD-global
+         setup. Force the classic runtime so JSX compiles to React.createElement. -->
+    <script>
+      Babel.registerPreset("react-classic", {
+        presets: [[Babel.availablePresets["react"], { runtime: "classic" }]],
+      });
+    </script>
+
+    <!-- Chart.js (CDN) -->
+    <script src="vendor/chart.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous"></script>
+
+    <!-- Shared base styles + components (classic script, works over file://) -->
+    <link rel="stylesheet" href="dashboard-common.css?v=20261013-mobile3">
+    <script src="dashboard-common.js?v=20261013-mobile3"></script>
+    <script src="faceid-core.js?v=20261013-faceid1"></script>
+    <script src="salary-passkey.js?v=20261013-faceid1"></script>
+    <script src="salary-store.js"></script>
+    <script src="salary-offline.js"></script>
+    <script src="salary-mobile.js?v=20261013-faceid1"></script>
+
+    <!-- Use device fonts so the phone UI does not wait for external services. -->
+    <style>
+      /* Tabs / table base / focus / tooltip / status / scrollbars / chart-container
+         / segmented / KPI / delta / empty state → dashboard-common.css.
+         NOTE: YearTable sets exact sticky offsets inline (60/130/70px). */
+
+      /* Edit inputs: neutral border, accent only on hover/focus */
+      .editable-input,
+      .edit-input {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--border-default);
+        color: var(--text-primary);
+        padding: 4px 6px;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 0.8rem;
+        width: 100%;
+        min-width: 40px;
+        box-sizing: border-box;
+        transition:
+          border-color var(--transition-fast),
+          box-shadow var(--transition-fast);
+      }
+      .editable-input {
+        min-width: 90px;
+        text-align: right;
+      }
+      .editable-input:hover,
+      .edit-input:hover {
+        border-color: rgba(41, 151, 255, 0.6);
+      }
+      .editable-input:focus,
+      .edit-input:focus {
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.3);
+        outline: none;
+      }
+      .edit-input[type="number"] {
+        text-align: right;
+      }
+      .edit-input[type="text"] {
+        min-width: 80px;
+      }
+      .edit-input::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+        cursor: pointer;
+      }
+      .editing-row td {
+        background: rgba(251, 191, 36, 0.03);
+      }
+      .table-container.editing,
+      .glass-card.editing {
+        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.45);
+      }
+
+      /* Tab 0: Year Table fills height */
+      .full-height-card {
+        flex: 1;
+        min-height: 0;
+        margin-bottom: 0;
+      }
+
+      /* Tab 1: Analysis layout (chart 3 : history 2, wraps on narrow) */
+      .analysis-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        min-height: 0;
+        min-width: 0; /* 否則會被表格 min-content 撐寬，手機上超出畫面 */
+      }
+      .analysis-container > .glass-card {
+        min-width: 0;
+      }
+
+      /* Compact main salary table */
+      .year-table-section .table-container {
+        padding: 0 !important;
+        overflow-x: auto;
+      }
+      .year-table-section table {
+        font-size: 0.8rem !important;
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      .year-table-section th {
+        padding: 10px 8px !important;
+        line-height: 1.3;
+        white-space: nowrap;
+        background-color: var(--tbl-head);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+      }
+      .year-table-section td {
+        padding: 10px 8px !important;
+        line-height: 1.3;
+        white-space: nowrap;
+        transition: background var(--transition-fast);
+      }
+      .year-table-section tbody tr:hover td {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .year-table-section tfoot td {
+        font-weight: 700;
+        background: var(--tbl-group);
+        border-top: 1px solid var(--border-default);
+      }
+      .raise-mark {
+        color: var(--success-color);
+        font-size: 0.6rem;
+        margin-right: 3px;
+        vertical-align: 1px;
+      }
+      .th-current {
+        color: var(--accent-secondary) !important;
+      }
+
+      /* Year accordion (二代健保 / 福利明細) */
+      .acc {
+        padding: 0 !important;
+        margin-bottom: 12px;
+        overflow: hidden;
+      }
+      .acc-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px 16px;
+        flex-wrap: wrap;
+        padding: 14px 16px;
+        cursor: pointer;
+        transition: background var(--transition-fast);
+      }
+      .acc-head:hover {
+        background: var(--bg-hover);
+      }
+      .acc-head:focus-visible {
+        outline: 2px solid var(--accent-color);
+        outline-offset: -2px;
+      }
+      .acc-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .acc-title h3 {
+        margin: 0 !important;
+        font-size: 1rem !important;
+      }
+      .acc-title .roc {
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        margin-left: 6px;
+      }
+      .acc-chevron {
+        display: inline-block;
+        width: 12px;
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        transition: transform var(--transition-fast);
+      }
+      .acc.open .acc-chevron {
+        transform: rotate(90deg);
+      }
+      .acc-stats {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .acc-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1.25;
+      }
+      .acc-stat span {
+        font-size: 0.68rem;
+        color: var(--text-muted);
+      }
+      .acc-stat strong {
+        font-family: "Inter", "Noto Sans TC", sans-serif;
+        font-size: 0.92rem;
+        font-weight: 600;
+      }
+      .acc-count {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .acc-body {
+        padding: 0 16px 16px;
+        border-top: 1px solid var(--border-subtle);
+      }
+      .acc-body table {
+        margin-top: 10px;
+      }
+      .acc-body tfoot td,
+      .tax-table tfoot td {
+        font-weight: 700;
+        background: var(--tbl-group);
+      }
+      .text-left {
+        text-align: left !important;
+      }
+
+      /* Checkbox styling (scoped) */
+      .nhi-dashboard input[type="checkbox"],
+      .year-table-section input[type="checkbox"],
+      .glass-card input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent-color);
+        cursor: pointer;
+      }
+
+      /* Hide number input spinners */
+      input[type="number"]::-webkit-inner-spin-button,
+      input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      input[type="number"] {
+        -moz-appearance: textfield;
+      }
+
+      /* Salary responsive (matches shared breakpoints) */
+      @media (max-width: 900px) {
+        .analysis-container {
+          flex-direction: column;
+          /* column + wrap 會讓每行寬度以內容計，卡片被撐出畫面 */
+          flex-wrap: nowrap;
+        }
+      }
+      @media all {
+        .acc-stats {
+          width: 100%;
+          gap: 14px;
+        }
+        .acc-stat {
+          align-items: flex-start;
+        }
+
+        /* ---- 手機版面：外殼 / 標頭 ---- */
+        .app-container {
+          padding: 10px;
+        }
+        .dash-header {
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .header-actions {
+          gap: 6px;
+        }
+        .header-actions .btn {
+          min-height: 38px;
+          padding: 8px 12px;
+        }
+        .glass-card {
+          padding: 14px;
+        }
+        .acc-body {
+          padding: 0 12px 12px;
+        }
+        .segmented.seg-sm .seg-btn {
+          padding: 6px 10px;
+        }
+
+        /* ---- 年薪紀錄：年份卡 ---- */
+        .year-cards {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .year-card-head {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+        .year-card-title {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          font-size: 1.1rem;
+        }
+        .year-card-total {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-left: auto;
+          font-size: 1.05rem;
+        }
+        .year-card-total .th-sub {
+          display: inline;
+          margin-left: 6px;
+        }
+        .month-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 6px;
+        }
+        .month-cell {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          padding: 7px 8px;
+          border-radius: 8px;
+          min-height: 56px;
+          min-width: 0;
+        }
+        .month-cell-label {
+          font-size: 0.68rem;
+          color: var(--text-muted);
+        }
+        .month-cell-value {
+          font-size: 0.85rem;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .month-empty {
+          color: var(--text-muted);
+          font-weight: 400;
+        }
+        .month-cell .edit-input {
+          width: 100%;
+          min-height: 34px;
+          font-size: 0.95rem;
+        }
+        .extra-list {
+          margin-top: 10px;
+          border-top: 1px solid var(--border-subtle);
+        }
+        .extra-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 7px 0;
+          border-bottom: 1px solid var(--border-subtle);
+          font-size: 0.85rem;
+        }
+        .extra-row:last-child {
+          border-bottom: none;
+        }
+        .extra-row .editable-input {
+          width: 130px;
+          min-height: 36px;
+          font-size: 0.95rem;
+        }
+        .year-total-card {
+          padding: 12px 14px;
+        }
+        .year-total-card .year-card-head {
+          margin-bottom: 0;
+        }
+
+        /* ---- 記錄卡（二代健保 / 福利 / 所得紀錄） ---- */
+        .rec-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 10px 0 2px;
+        }
+        .rec-card {
+          background: var(--tbl-row);
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          padding: 10px 12px;
+        }
+        .rec-card-head {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 6px;
+          font-size: 0.9rem;
+        }
+        .rec-card-head > span:first-child {
+          font-weight: 600;
+        }
+        .rec-card-head .delta,
+        .rec-card-head .btn {
+          margin-left: auto;
+        }
+        .rec-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 2px 12px;
+        }
+        .rec-grid > div {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 5px 0;
+          font-size: 0.82rem;
+          min-width: 0;
+        }
+        .rec-grid > div > span {
+          color: var(--text-muted);
+        }
+        .rec-grid > div > b {
+          font-variant-numeric: tabular-nums;
+        }
+        .rec-grid .rec-wide {
+          grid-column: 1 / -1;
+        }
+        .rec-grid input[type="checkbox"] {
+          width: 22px;
+          height: 22px;
+        }
+        .rec-grid.rec-edit label {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 5px 0;
+          font-size: 0.72rem;
+          color: var(--text-muted);
+        }
+        .rec-grid.rec-edit label.rec-wide {
+          grid-column: 1 / -1;
+        }
+        .rec-grid.rec-edit .edit-input {
+          width: 100%;
+          min-height: 40px;
+          font-size: 1rem;
+        }
+        .rec-grid.rec-edit label.rec-check {
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .rec-grid.rec-edit input[type="checkbox"] {
+          width: 24px;
+          height: 24px;
+        }
+        .rec-line {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 6px 0;
+          border-top: 1px solid var(--border-subtle);
+          font-size: 0.85rem;
+        }
+        .rec-line > span {
+          color: var(--text-muted);
+        }
+        .rec-line > b {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .rec-line .edit-input {
+          width: 55%;
+          min-height: 40px;
+          font-size: 1rem;
+        }
+        .rec-total-card {
+          background: var(--tbl-group);
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="salary-mobile.css?v=20261013-mobile3">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel" data-presets="react-classic">
+      const { useState, useEffect, useMemo, useRef } = React;
+      // formatMoney / PasswordModal / ChartView / CryptoUtils / DeltaBadge /
+      // ChangePasswordModal / EmbeddedStore / securityNoteFor / drawHaloText /
+      // useUnloadGuard / EmptyState → dashboard-common.js
+
+      // All screen widths use the phone card layout.
+
+
+      // ---- Shared salary helpers ----------------------------------------------
+      const SALARY_EXCLUDE = ["ceYear", "rocYear", "months", "expectedTotal", "id"];
+      // 年終 / 績效 / 分紅 等「月薪以外」的數字欄位
+      const getExtraFields = (data) => {
+        const fields = new Set();
+        (data || []).forEach((row) =>
+          Object.keys(row).forEach((k) => {
+            if (!SALARY_EXCLUDE.includes(k) && typeof row[k] === "number")
+              fields.add(k);
+          }),
+        );
+        return Array.from(fields);
+      };
+      const num = (v) => Number(v) || 0;
+      const baseSum = (row, n = 12) =>
+        row.months.slice(0, n).reduce((a, b) => a + num(b), 0);
+      const extrasSum = (row, fields) =>
+        fields.reduce((acc, k) => acc + num(row[k]), 0);
+      const yearTotal = (row, fields) => baseSum(row) + extrasSum(row, fields);
+      // 已發薪月數：最後一個非 0 月份（全 0 視為 0）
+      const monthsPaid = (row) => {
+        for (let i = 11; i >= 0; i--) if (num(row.months[i]) !== 0) return i + 1;
+        return 0;
+      };
+      const lastSalary = (row) => {
+        const n = monthsPaid(row);
+        return n ? num(row.months[n - 1]) : 0;
+      };
+      const monthSpan = (n) => (n >= 12 ? "全年" : `1–${n}月`);
+      const pctText = (cur, prev) => {
+        if (!prev) return null;
+        const p = ((cur - prev) / Math.abs(prev)) * 100;
+        return `${p > 0 ? "+" : ""}${p.toFixed(1)}%`;
+      };
+
+      // 加薪歷程：月薪比上一次高時記一筆（降薪只更新基準）
+      const computeRaises = (data) => {
+        const r = [];
+        let currentSalary = 0;
+        let lastDateIndex = -1;
+        data.forEach((year) => {
+          year.months.forEach((salary, monthIndex) => {
+            const currentDateIndex = year.ceYear * 12 + monthIndex;
+            if (currentSalary === 0) {
+              currentSalary = salary;
+              lastDateIndex = currentDateIndex;
+              return;
+            }
+            if (salary > currentSalary) {
+              const diff = salary - currentSalary;
+              r.push({
+                year: year.ceYear,
+                month: monthIndex + 1,
+                old: currentSalary,
+                new: salary,
+                diff,
+                percent: (diff / currentSalary) * 100,
+                dateIndex: currentDateIndex,
+                interval: lastDateIndex === -1 ? 0 : currentDateIndex - lastDateIndex,
+              });
+              currentSalary = salary;
+              lastDateIndex = currentDateIndex;
+            } else if (salary < currentSalary && salary !== 0) {
+              currentSalary = salary;
+              lastDateIndex = currentDateIndex;
+            }
+          });
+        });
+        return r;
+      };
+
+      // ---- KPI strip (latest year) --------------------------------------------
+      const SalaryKpiStrip = ({ data }) => {
+        if (!data || data.length === 0) return null;
+        const fields = getExtraFields(data);
+        const sorted = [...data].sort((a, b) => a.ceYear - b.ceYear);
+        const latest = sorted[sorted.length - 1];
+        const prev = sorted.find((r) => r.ceYear === latest.ceYear - 1);
+        const n = monthsPaid(latest) || 12;
+        const total = yearTotal(latest, fields);
+        const extras = extrasSum(latest, fields);
+        const cur = lastSalary(latest);
+        const prevSameMonth = prev ? num(prev.months[n - 1]) : 0;
+        const base = baseSum(latest, n);
+        const prevBase = prev ? baseSum(prev, n) : 0;
+        // 變動薪資佔比取最近一個完整年度（未滿一年時年終/分紅多半還沒發）
+        const fullRow =
+          [...sorted].reverse().find((r) => monthsPaid(r) === 12) || latest;
+        const fullTotal = yearTotal(fullRow, fields);
+        const fullExtras = extrasSum(fullRow, fields);
+        const raises = computeRaises(sorted);
+        const lastRaise = raises[raises.length - 1];
+        const nowIndex = latest.ceYear * 12 + (n - 1);
+        const tone = (c, p) =>
+          !p || Math.abs(c - p) < 1e-9
+            ? undefined
+            : c > p
+              ? "var(--success-color)"
+              : "var(--danger-color)";
+
+        return (
+          <div className="kpi-grid">
+            <div className="kpi-card">
+              <div className="kpi-label">
+                {latest.ceYear} 總收入 · {monthSpan(n)}
+              </div>
+              <div className="kpi-value">{formatMoney(total)}</div>
+              <div className="kpi-sub">
+                本薪 {formatMoney(total - extras)} · 其他 {formatMoney(extras)}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">目前月薪 · {n}月</div>
+              <div className="kpi-value">{formatMoney(cur)}</div>
+              <div className="kpi-sub">
+                {prevSameMonth
+                  ? `較去年同月 ${pctText(cur, prevSameMonth)}`
+                  : "無去年同月資料"}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">本薪較去年同期</div>
+              <div className="kpi-value" style={{ color: tone(base, prevBase) }}>
+                {prevBase ? pctText(base, prevBase) : "—"}
+              </div>
+              <div className="kpi-sub">
+                {prevBase
+                  ? `${base >= prevBase ? "多" : "少"} ${formatMoney(Math.abs(base - prevBase))} · ${monthSpan(n)}`
+                  : "—"}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">{fullRow.ceYear} 變動薪資佔比</div>
+              <div className="kpi-value">
+                {fullTotal ? ((fullExtras / fullTotal) * 100).toFixed(0) : 0}%
+              </div>
+              <div className="kpi-sub">
+                {fields.length ? fields.join("、") : "無其他欄位"}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">上次調薪</div>
+              <div
+                className="kpi-value"
+                style={{ color: lastRaise ? "var(--success-color)" : undefined }}
+              >
+                {lastRaise ? `+${lastRaise.percent.toFixed(1)}%` : "—"}
+              </div>
+              <div className="kpi-sub">
+                {lastRaise
+                  ? `${lastRaise.year}/${lastRaise.month} · 距今 ${Math.max(0, nowIndex - lastRaise.dateIndex)} 個月`
+                  : "尚無調薪紀錄"}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // ---- Year accordion (二代健保 / 福利明細) -------------------------------
+      const YearAccordion = ({
+        title,
+        roc,
+        stats = [],
+        count,
+        expanded,
+        onToggle,
+        actions,
+        children,
+      }) => (
+        <div className={`glass-card acc ${expanded ? "open" : ""}`}>
+          <div
+            className="acc-head"
+            role="button"
+            tabIndex={0}
+            aria-expanded={expanded}
+            onClick={onToggle}
+            onKeyDown={(e) => {
+              if (
+                e.target === e.currentTarget &&
+                (e.key === "Enter" || e.key === " ")
+              ) {
+                e.preventDefault();
+                onToggle();
+              }
+            }}
+          >
+            <div className="acc-title">
+              <span className="acc-chevron" aria-hidden="true">
+                ▶
+              </span>
+              <h3>
+                {title}
+                {roc && <span className="roc">民國 {roc}</span>}
+              </h3>
+              {actions}
+            </div>
+            <div className="acc-stats">
+              {stats.map((s) => (
+                <div key={s.label} className="acc-stat">
+                  <span>{s.label}</span>
+                  <strong style={{ color: s.color }}>{s.value}</strong>
+                </div>
+              ))}
+              <span className="acc-count">共 {count} 筆</span>
+            </div>
+          </div>
+          {expanded && <div className="acc-body table-container">{children}</div>}
+        </div>
+      );
+
+      const AddButton = ({ onClick }) => (
+        <button
+          className="btn btn-sm btn-ghost"
+          style={{ padding: "2px 10px", fontSize: "0.75rem" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          + 新增
+        </button>
+      );
+      const DeleteButton = ({ onClick, label = "刪除" }) => (
+        <button
+          className="btn btn-sm btn-danger"
+          style={{ padding: "2px 8px", fontSize: "0.75rem" }}
+          onClick={onClick}
+        >
+          {label}
+        </button>
+      );
+      const toggleInSet = (set, key) => {
+        const next = new Set(set);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      };
+
+      const NHIDashboard = ({ nhiData, isEditing, onUpdate }) => {
+        const dataByYear = useMemo(() => {
+          if (!nhiData || nhiData.length === 0) return {};
+          const grouped = {};
+
+          nhiData.forEach((item, index) => {
+            const year = item.date.split("-")[0];
+            if (!grouped[year]) grouped[year] = [];
+            grouped[year].push({ ...item, originalIndex: index });
+          });
+
+          const result = {};
+          Object.keys(grouped)
+            .sort()
+            .forEach((year) => {
+              let runningIncomeSum = 0;
+              result[year] = grouped[year].map((item) => {
+                const income = item.income;
+                const is211 = item.is211;
+
+                if (is211) {
+                  runningIncomeSum += income;
+                }
+                const cumIncome = runningIncomeSum;
+                const bracket = item.bracket;
+                const diff = cumIncome - bracket;
+
+                // Calculations
+                const subjectAmount =
+                  is211 && diff > 0 ? Math.min(income, diff) : 0;
+                const nhiFee = is211 ? Math.round(subjectAmount * 0.0211) : 0;
+
+                let tax = 0;
+                if (is211) {
+                  tax = Math.round(income * 0.05);
+                } else if (item.note?.includes("抽獎")) {
+                  tax = Math.round(income * 0.1);
+                }
+
+                const net = income - nhiFee - tax;
+
+                return {
+                  ...item,
+                  cumIncome,
+                  diff,
+                  subjectAmount,
+                  nhiFee,
+                  tax,
+                  net,
+                };
+              });
+            });
+          return result;
+        }, [nhiData]);
+
+
+        const years = Object.keys(dataByYear).sort((a, b) => b - a);
+        // 預設展開最新年度
+        const [expandedYears, setExpandedYears] = useState(
+          () => new Set(years.slice(0, 1)),
+        );
+
+        const handleCheckboxChange = (originalIndex) => {
+          const newData = [...nhiData];
+          newData[originalIndex] = {
+            ...newData[originalIndex],
+            is211: !newData[originalIndex].is211,
+          };
+          onUpdate(newData);
+        };
+
+        const handleItemEdit = (originalIndex, field, value) => {
+          let newData = [...nhiData];
+          newData[originalIndex] = {
+            ...newData[originalIndex],
+            [field]: value,
+          };
+          if (field === "date") {
+            newData.sort((a, b) => a.date.localeCompare(b.date));
+          }
+          onUpdate(newData);
+        };
+
+        const deleteRecord = (originalIndex) => {
+          const rec = nhiData[originalIndex];
+          if (!confirm(`刪除 ${rec.date}「${rec.note || ""}」這筆紀錄？`)) return;
+          const newData = nhiData.filter((_, index) => index !== originalIndex);
+          onUpdate(newData);
+        };
+
+        const addNewRecord = (year) => {
+          const newData = [...nhiData];
+          const lastInYear = [...nhiData]
+            .reverse()
+            .find((d) => d.date.startsWith(year));
+          newData.push({
+            date: `${year}-01-01`,
+            bracket: lastInYear ? lastInYear.bracket : 368400,
+            income: 0,
+            is211: false,
+            note: "新紀錄",
+          });
+          newData.sort((a, b) => a.date.localeCompare(b.date));
+          onUpdate(newData);
+        };
+
+        return (
+          <div className="nhi-dashboard">
+            {years.map((year) => {
+              const yearItems = dataByYear[year];
+              const totals = yearItems.reduce(
+                (acc, cur) => ({
+                  income: acc.income + cur.income,
+                  subjectAmount: acc.subjectAmount + cur.subjectAmount,
+                  nhiFee: acc.nhiFee + cur.nhiFee,
+                  tax: acc.tax + cur.tax,
+                  net: acc.net + cur.net,
+                }),
+                { income: 0, subjectAmount: 0, nhiFee: 0, tax: 0, net: 0 },
+              );
+
+              return (
+                <YearAccordion
+                  key={year}
+                  title={year}
+                  roc={year - 1911}
+                  count={yearItems.length}
+                  expanded={expandedYears.has(year)}
+                  onToggle={() => setExpandedYears((s) => toggleInSet(s, year))}
+                  actions={isEditing && <AddButton onClick={() => addNewRecord(year)} />}
+                  stats={[
+                    { label: "所得", value: formatMoney(totals.income) },
+                    {
+                      label: "二代健保費",
+                      value: formatMoney(totals.nhiFee),
+                      color: totals.nhiFee ? "var(--danger-color)" : undefined,
+                    },
+                    { label: "扣繳稅額", value: formatMoney(totals.tax) },
+                    { label: "實領", value: formatMoney(totals.net) },
+                  ]}
+                >
+                  {<div className="rec-list">
+                      {yearItems.map((item, idx) => (
+                        <div className="rec-card" key={idx}>
+                          <div className="rec-card-head">
+                            <span>
+                              {item.date}
+                              {item.note ? ` · ${item.note}` : ""}
+                            </span>
+                            {isEditing && (
+                              <DeleteButton
+                                onClick={() => deleteRecord(item.originalIndex)}
+                              />
+                            )}
+                          </div>
+                          {isEditing ? (
+                            <div className="rec-grid rec-edit">
+                              <label>
+                                日期
+                                <input
+                                  type="date"
+                                  className="edit-input"
+                                  value={item.date}
+                                  onChange={(e) =>
+                                    handleItemEdit(
+                                      item.originalIndex,
+                                      "date",
+                                      e.target.value,
+                                    )
+                                  }
+                                  onClick={(e) =>
+                                    e.target.showPicker && e.target.showPicker()
+                                  }
+                                />
+                              </label>
+                              <label>
+                                所得級距(B)
+                                <input
+                                  className="edit-input"
+                                  type="number"
+                                  inputMode="numeric"
+                                  value={item.bracket}
+                                  onFocus={(e) => e.target.select()}
+                                  onChange={(e) =>
+                                    handleItemEdit(
+                                      item.originalIndex,
+                                      "bracket",
+                                      parseInt(e.target.value) || 0,
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label>
+                                所得(C)
+                                <input
+                                  className="edit-input"
+                                  type="number"
+                                  inputMode="numeric"
+                                  value={item.income}
+                                  onFocus={(e) => e.target.select()}
+                                  onChange={(e) =>
+                                    handleItemEdit(
+                                      item.originalIndex,
+                                      "income",
+                                      parseInt(e.target.value) || 0,
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label className="rec-check">
+                                計入二代健保
+                                <input
+                                  type="checkbox"
+                                  checked={item.is211}
+                                  onChange={() =>
+                                    handleCheckboxChange(item.originalIndex)
+                                  }
+                                />
+                              </label>
+                              <label className="rec-wide">
+                                備註
+                                <input
+                                  className="edit-input"
+                                  value={item.note || ""}
+                                  onChange={(e) =>
+                                    handleItemEdit(
+                                      item.originalIndex,
+                                      "note",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              </label>
+                            </div>
+                          ) : (
+                            <div className="rec-grid">
+                              <div>
+                                <span>所得級距(B)</span>
+                                <b>{formatMoney(item.bracket)}</b>
+                              </div>
+                              <div>
+                                <span>所得(C)</span>
+                                <b>{formatMoney(item.income)}</b>
+                              </div>
+                              <div>
+                                <span>收入累加(E)</span>
+                                <b>{formatMoney(item.cumIncome)}</b>
+                              </div>
+                              <div
+                                style={{
+                                  color: item.diff > 0 ? "var(--warning-color)" : "",
+                                }}
+                              >
+                                <span>E-B(F)</span>
+                                <b>{formatMoney(item.diff)}</b>
+                              </div>
+                              <div>
+                                <span>計費金額</span>
+                                <b>{formatMoney(item.subjectAmount)}</b>
+                              </div>
+                              <div
+                                style={{
+                                  color: item.nhiFee
+                                    ? "var(--danger-color)"
+                                    : "",
+                                }}
+                              >
+                                <span>二代健保費</span>
+                                <b>{formatMoney(item.nhiFee)}</b>
+                              </div>
+                              <div>
+                                <span>扣繳稅額(5%)</span>
+                                <b>{formatMoney(item.tax)}</b>
+                              </div>
+                              <div>
+                                <span>實領金額</span>
+                                <b>{formatMoney(item.net)}</b>
+                              </div>
+                              <div className="rec-wide">
+                                <span>計入二代健保</span>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`${item.date} 計入二代健保`}
+                                  checked={item.is211}
+                                  onChange={() =>
+                                    handleCheckboxChange(item.originalIndex)
+                                  }
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>}
+                </YearAccordion>
+              );
+            })}
+          </div>
+        );
+      };
+
+      const DataTable = ({ data, title, isEditing, onUpdate }) => {
+
+        if (!data || data.length === 0) return <div>無資料</div>;
+        const headers = Object.keys(data[0]);
+
+        const handleEdit = (index, field, value) => {
+          if (isTotalField(field) || field === "year") return; // 唯讀，自動加總或年份固定
+          const newData = [...data];
+          // Try to maintain types
+          if (typeof data[0][field] === "number") {
+            newData[index][field] = Number(value) || 0;
+          } else {
+            newData[index][field] = value;
+          }
+          onUpdate(newData);
+        };
+
+        const handleDelete = (index) => {
+          const row = data[index];
+          if (!confirm(`刪除 ${row.year || row["年度"] || ""} 年度這筆紀錄？`)) return;
+          const newData = data.filter((_, i) => i !== index);
+          onUpdate(newData);
+        };
+
+        const handleAdd = () => {
+          const newRow = {};
+          const lastYearRow =
+            data.length > 0
+              ? [...data].sort((a, b) => {
+                  const valA = a.year || a["年度"] || 0;
+                  const valB = b.year || b["年度"] || 0;
+                  return valB - valA;
+                })[0]
+              : null;
+
+          const nextYear = lastYearRow
+            ? Number(lastYearRow.year || lastYearRow["年度"] || 0) + 1
+            : new Date().getFullYear();
+
+          headers.forEach((h) => {
+            if (h === "year" || h === "年度") {
+              newRow[h] = nextYear;
+            } else if (typeof data[0][h] === "number") {
+              newRow[h] = 0;
+            } else {
+              newRow[h] = "";
+            }
+          });
+          onUpdate([...data, newRow]);
+        };
+
+        const isTotalField = (h) => h === "expectedTotal" || h === "總額";
+        const isExcludedFromSum = (k) => {
+          const lower = k.toLowerCase();
+          return (
+            isTotalField(k) ||
+            lower === "year" ||
+            lower === "id" ||
+            lower === "no" ||
+            lower === "年度" ||
+            k === "ceYear" ||
+            k === "rocYear"
+          );
+        };
+
+        const taxTableLabels = [
+          { label: "年度", text: "年度", key: "year" },
+          { label: "總額", text: "總額", key: "expectedTotal" },
+          {
+            label: (
+              <span>
+                所得(50)
+                <br />
+                (14薪)
+              </span>
+            ),
+            text: "所得(50)（14薪）",
+            key: "salary50",
+          },
+          {
+            label: (
+              <span>
+                所得(50)(2)
+                <br />
+                (超4倍薪,績效+紅利)
+              </span>
+            ),
+            text: "所得(50)(2)（績效+紅利）",
+            key: "salary50_2",
+          },
+          { label: "利息", text: "利息", key: "interest" },
+          { label: "股利(54C)", text: "股利(54C)", key: "dividend" },
+          {
+            label: (
+              <span>
+                獎金(91)
+                <br />
+                (尾牙抽獎)
+              </span>
+            ),
+            text: "獎金(91)（尾牙抽獎）",
+            key: "bonus",
+          },
+          {
+            label: (
+              <span>
+                其他(92)
+                <br />
+                (福委會)
+              </span>
+            ),
+            text: "其他(92)（福委會）",
+            key: "other",
+          },
+        ];
+        // 手機卡片用純文字標籤（桌機用 <br/> 兩行表頭）
+        const labelText = (h) => {
+          const found = taxTableLabels.find((t) => t.key === h);
+          return found ? found.text : h;
+        };
+
+        const displayRows =
+          title === "年度所得稅紀錄"
+            ? taxTableLabels.map((item) => ({
+                label: item.label,
+                key: item.key,
+              }))
+            : headers.map((h) => ({ label: h, key: h }));
+
+        const calculateRowTotal = (row) => {
+          return Object.entries(row).reduce((s, [k, v]) => {
+            if (!isExcludedFromSum(k) && typeof v === "number") {
+              return s + (v || 0);
+            }
+            return s;
+          }, 0);
+        };
+        const yearOf = (row) => Number(row.year || row["年度"] || 0);
+
+        const columnTotals = {};
+        displayRows.forEach((rowConfig) => {
+          const header = rowConfig.key;
+          if (
+            (typeof data[0][header] === "number" || isTotalField(header)) &&
+            header !== "year"
+          ) {
+            columnTotals[header] = data.reduce((sum, row) => {
+              let val = row[header] || 0;
+              if (isTotalField(header)) {
+                val = calculateRowTotal(row);
+              }
+              return sum + val;
+            }, 0);
+          }
+        });
+
+
+          const phoneInput = (row, i, h) => {
+            const v = row[h];
+            const isDate =
+              h.toLowerCase().includes("date") || h.includes("日期");
+            return (
+              <input
+                className="edit-input"
+                type={typeof v === "number" ? "number" : isDate ? "date" : "text"}
+                inputMode={typeof v === "number" ? "numeric" : undefined}
+                value={v}
+                onFocus={(e) => typeof v === "number" && e.target.select()}
+                onChange={(e) => handleEdit(i, h, e.target.value)}
+                onClick={(e) =>
+                  isDate && e.target.showPicker && e.target.showPicker()
+                }
+                style={{
+                  width: "55%",
+                  minHeight: 40,
+                  fontSize: "1rem",
+                  textAlign: typeof v === "number" ? "right" : "left",
+                }}
+              />
+            );
+          };
+          return (
+            <div className={`glass-card ${isEditing ? "editing" : ""}`}>
+              <div className="card-head">
+                <div>
+                  <h3>{title}</h3>
+                  <span className="card-sub">總額旁為與前一年度的增減</span>
+                </div>
+                {isEditing && (
+                  <button className="btn btn-sm btn-ghost" onClick={handleAdd}>
+                    + 新增紀錄
+                  </button>
+                )}
+              </div>
+              <div className="rec-list">
+                {data.map((row, i) => ({ row, i })).sort((a, b) => yearOf(b.row) - yearOf(a.row)).map(({ row, i }) => {
+                  const prevRow = data.find(
+                    (r) => yearOf(r) === yearOf(row) - 1,
+                  );
+                  return (
+                    <div className="rec-card" key={i}>
+                      <div className="rec-card-head">
+                        <span>年度 {yearOf(row)}</span>
+                        {isEditing && (
+                          <DeleteButton onClick={() => handleDelete(i)} />
+                        )}
+                      </div>
+                      {displayRows.map(({ key: h, label }, j) => {
+                        if (h === "year" || label === "年度") return null;
+                        if (isTotalField(h)) {
+                          return (
+                            <div className="rec-line" key={j}>
+                              <span>{labelText(h)}</span>
+                              <b>
+                                {formatMoney(calculateRowTotal(row))}
+                                {prevRow && (
+                                  <DeltaBadge
+                                    cur={calculateRowTotal(row)}
+                                    prev={calculateRowTotal(prevRow)}
+                                    goodWhenUp
+                                    title={`${yearOf(prevRow)}：${formatMoney(calculateRowTotal(prevRow))}`}
+                                  />
+                                )}
+                              </b>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="rec-line" key={j}>
+                            <span>{labelText(h)}</span>
+                            {isEditing ? (
+                              phoneInput(row, i, h)
+                            ) : typeof row[h] === "number" ? (
+                              <b>{formatMoney(row[h])}</b>
+                            ) : (
+                              <b>{row[h]}</b>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                <div className="rec-card rec-total-card">
+                  <div className="rec-card-head">
+                    <span>總計</span>
+                  </div>
+                  {displayRows.map(({ key: h, label }, i) =>
+                    (typeof data[0][h] === "number" || isTotalField(h)) &&
+                    h !== "year" &&
+                    label !== "年度" ? (
+                      <div className="rec-line" key={i}>
+                        <span>{labelText(h)}</span>
+                        <b>{formatMoney(columnTotals[h])}</b>
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+
+
+
+      };
+
+      const YearTable = ({ data, setData, isEditing }) => {
+        const dynamicFields = useMemo(() => getExtraFields(data), [data]);
+        const [expandedYears, setExpandedYears] = useState(() => new Set([Math.max(...data.map(row => row.ceYear))]));
+        const HeadTag = isEditing ? "div" : "button";
+
+        const now = new Date();
+
+        const updateField = (index, field, value) => {
+          const newData = [...data];
+          newData[index][field] = Number(value);
+          setData(newData);
+        };
+
+        const updateMonth = (rowIndex, monthIndex, value) => {
+          const newData = [...data];
+          newData[rowIndex].months[monthIndex] = Number(value);
+          setData(newData);
+        };
+
+        const deleteRow = (index) => {
+          if (!confirm(`刪除 ${data[index].ceYear} 年度的薪資資料？`)) return;
+          const newData = [...data];
+          newData.splice(index, 1);
+          setData(newData);
+        };
+
+        // Footer: 累計（歷年總收入與各獎金欄位合計）
+        const totalAnnualSalary = data.reduce(
+          (sum, row) => sum + yearTotal(row, dynamicFields),
+          0,
+        );
+        const fieldTotals = dynamicFields.reduce((acc, field) => {
+          acc[field] = data.reduce((s, row) => s + (row[field] || 0), 0);
+          return acc;
+        }, {});
+
+
+
+
+        // 同一薪資級距用同一底色：從第一個月數到 (rowIndex, mIndex) 換過幾次級距
+        const bandIndexAt = (rowIndex, mIndex) => {
+          let changeCount = 0;
+          let prevVal = 0;
+          for (let ri = 0; ri <= rowIndex; ri++) {
+            const limitM = ri === rowIndex ? mIndex : 11;
+            for (let mi = 0; mi <= limitM; mi++) {
+              const v = data[ri].months[mi];
+              if (v !== prevVal && v !== 0) {
+                changeCount++;
+                prevVal = v;
+              }
+            }
+          }
+          return changeCount;
+        };
+
+        // ---- 手機版面：一年一張卡，12 個月用 3×4 格子 ----
+
+          return (
+            <div className="year-cards">
+              {data.map((row, index) => ({ row, index })).sort((a, b) => b.row.ceYear - a.row.ceYear).map(({ row, index }) => {
+                const annualTotal = yearTotal(row, dynamicFields);
+                const prevRow = data.find((r) => r.ceYear === row.ceYear - 1);
+                const paid = monthsPaid(row);
+                const partial = paid > 0 && paid < 12;
+                const expanded = isEditing || expandedYears.has(row.ceYear);
+
+                return (
+                  <div className={`glass-card year-card ${isEditing ? "editing" : ""}`} key={row.ceYear} data-year={row.ceYear}>
+                    <HeadTag className={`year-card-head ${isEditing ? "" : "year-toggle"}`}
+                      type={isEditing ? undefined : "button"}
+                      aria-expanded={isEditing ? undefined : expanded}
+                      aria-label={isEditing ? undefined : `${row.ceYear} 年薪明細`}
+                      onClick={isEditing ? undefined : () => setExpandedYears(prev => toggleInSet(prev, row.ceYear))}>
+                      <div className="year-card-title">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            value={row.ceYear}
+                            onChange={(e) =>
+                              updateField(index, "ceYear", e.target.value)
+                            }
+                            className="edit-input"
+                            style={{ textAlign: "center", width: "90px" }}
+                          />
+                        ) : (
+                          <strong>{row.ceYear}</strong>
+                        )}
+                        {partial && <span className="th-sub">{monthSpan(paid)}</span>}
+                        {!isEditing && <span className="year-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>}
+                      </div>
+                      <div className="year-card-total">
+                        <strong>{formatMoney(annualTotal)}</strong>
+                        {prevRow &&
+                          (partial ? (
+                            <DeltaBadge
+                              cur={baseSum(row, paid)}
+                              prev={baseSum(prevRow, paid)}
+                              goodWhenUp
+                              title={`未滿一年：只比較本薪 ${monthSpan(paid)} 同期`}
+                            />
+                          ) : (
+                            <DeltaBadge
+                              cur={annualTotal}
+                              prev={yearTotal(prevRow, dynamicFields)}
+                              goodWhenUp
+                              title={`${prevRow.ceYear}：${formatMoney(yearTotal(prevRow, dynamicFields))}`}
+                            />
+                          ))}
+                      </div>
+                      {isEditing && (
+                        <DeleteButton onClick={() => deleteRow(index)} />
+                      )}
+                    </HeadTag>
+                    <div className="year-card-body" hidden={!expanded}>
+                    <div className="month-grid">
+                      {row.months.map((m, mIndex) => {
+                        const prevSalary =
+                          mIndex > 0
+                            ? row.months[mIndex - 1]
+                            : index > 0
+                              ? data[index - 1].months[11]
+                              : null;
+                        const hasChanged =
+                          prevSalary !== null && prevSalary !== m && m !== 0;
+                        const isRaise =
+                          hasChanged && prevSalary > 0 && m > prevSalary;
+                        const bgColor = !m
+                          ? "transparent"
+                          : bandIndexAt(index, mIndex) % 2 === 0
+                            ? "rgba(255, 255, 255, 0.03)"
+                            : "rgba(41, 151, 255, 0.1)";
+                        const isCurrent =
+                          row.ceYear === now.getFullYear() &&
+                          mIndex === now.getMonth();
+
+                        return (
+                          <div
+                            key={mIndex}
+                            className="month-cell"
+                            style={{
+                              backgroundColor: bgColor,
+                              borderLeft: hasChanged
+                                ? `2px solid ${isRaise ? "var(--success-color)" : "var(--accent-color)"}`
+                                : "none",
+                              boxShadow: isCurrent
+                                ? "inset 0 -2px 0 var(--accent-secondary)"
+                                : undefined,
+                            }}
+                          >
+                            <span className="month-cell-label">
+                              {mIndex + 1}月
+                            </span>
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                aria-label={`${row.ceYear} ${mIndex + 1}月`}
+                                value={m}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) =>
+                                  updateMonth(index, mIndex, e.target.value)
+                                }
+                                className="edit-input"
+                              />
+                            ) : m ? (
+                              <span className="month-cell-value">
+                                {isRaise && (
+                                  <span className="raise-mark" aria-hidden="true">
+                                    ▲
+                                  </span>
+                                )}
+                                {formatMoney(m)}
+                              </span>
+                            ) : (
+                              <span className="month-cell-value month-empty">
+                                —
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {dynamicFields.length > 0 && (
+                      <div className="extra-list">
+                        {dynamicFields.map((field) => (
+                          <div className="extra-row" key={field}>
+                            <span>{field}</span>
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                aria-label={`${row.ceYear} ${field}`}
+                                value={row[field]}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) =>
+                                  updateField(index, field, e.target.value)
+                                }
+                                className="editable-input"
+                              />
+                            ) : (
+                              <b>{row[field] ? formatMoney(row[field]) : "—"}</b>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="glass-card year-total-card">
+                <div className="year-card-head">
+                  <span>歷年累計</span>
+                  <strong>{formatMoney(totalAnnualSalary)}</strong>
+                </div>
+              </div>
+            </div>
+          );
+
+
+
+      };
+
+      const AnalysisDashboard = ({ data }) => {
+        const [metricType, setMetricType] = useState("all_stacked");
+        const [showTrend, setShowTrend] = useState(false);
+        const [showAvg, setShowAvg] = useState(false);
+        const [showMedian, setShowMedian] = useState(false);
+
+        const dynamicFields = useMemo(() => getExtraFields(data), [data]);
+        const paidCounts = useMemo(
+          () => data.map((d) => monthsPaid(d) || 12),
+          [data],
+        );
+
+        // Helper function for linear regression
+        const calculateLinearRegression = (x, y) => {
+          const n = x.length;
+          let sumX = 0,
+            sumY = 0,
+            sumXY = 0,
+            sumXX = 0;
+          for (let i = 0; i < n; i++) {
+            sumX += x[i];
+            sumY += y[i];
+            sumXY += x[i] * y[i];
+            sumXX += x[i] * x[i];
+          }
+          const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+          const intercept = (sumY - slope * sumX) / n;
+          return { slope, intercept };
+        };
+
+        // Helper function for median
+        const calculateMedian = (arr) => {
+          if (arr.length === 0) return 0;
+          const sorted = [...arr].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          return sorted.length % 2 !== 0
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+        };
+
+        const raises = useMemo(() => computeRaises(data), [data]);
+        const raiseStats = useMemo(() => {
+          if (raises.length === 0) return null;
+          const withInterval = raises.filter((r) => r.interval > 0);
+          return {
+            count: raises.length,
+            avgPct: raises.reduce((s, r) => s + r.percent, 0) / raises.length,
+            avgInterval: withInterval.length
+              ? withInterval.reduce((s, r) => s + r.interval, 0) /
+                withInterval.length
+              : 0,
+            growth:
+              raises[raises.length - 1].new / raises[0].old - 1,
+          };
+        }, [raises]);
+
+        // --- CHART LOGIC ---
+        const BASE_COLOR = "#38bdf8";
+        const EXTRA_COLORS = [
+          "#4ade80", // green
+          "#f472b6", // pink
+          "#fb923c", // orange
+          "#a3e635", // lime
+          "#e879f9", // fuchsia
+          "#f87171", // red
+        ];
+        const alpha = (hex, a) =>
+          `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, ${a})`;
+        const isStacked = metricType === "all_stacked";
+
+        const chartData = useMemo(() => {
+          const xLabels = data.map((d) => d.ceYear);
+          let datasets = [];
+
+          const totalIncomeData = data.map((d) => yearTotal(d, dynamicFields));
+          let primaryYData = [];
+          let primaryLabel = "";
+
+          if (isStacked) {
+            datasets.push({
+              type: "bar",
+              label: "本薪",
+              data: data.map((d) => baseSum(d)),
+              backgroundColor: alpha(BASE_COLOR, 0.75),
+              borderWidth: 0,
+              borderRadius: 3,
+              maxBarThickness: 56,
+              stack: "income",
+            });
+            dynamicFields.forEach((field, index) => {
+              const color = EXTRA_COLORS[index % EXTRA_COLORS.length];
+              datasets.push({
+                type: "bar",
+                label: field,
+                data: data.map((d) => d[field] || 0),
+                backgroundColor: alpha(color, 0.75),
+                borderWidth: 0,
+                borderRadius: 3,
+                maxBarThickness: 56,
+                stack: "income",
+              });
+            });
+            primaryYData = totalIncomeData;
+          } else {
+            if (metricType === "salary") {
+              // 取每年最後一個有發薪的月份（未滿一年時 12 月是 0）
+              primaryYData = data.map((d) => lastSalary(d));
+              primaryLabel = "月薪 (年底或最新)";
+            } else if (metricType === "total") {
+              primaryYData = totalIncomeData;
+              primaryLabel = "年度總收入";
+            } else {
+              primaryYData = data.map((d) => d[metricType] || 0);
+              primaryLabel = metricType;
+            }
+
+            datasets.push({
+              label: primaryLabel,
+              data: primaryYData,
+              backgroundColor: alpha(BASE_COLOR, 0.15),
+              borderColor: BASE_COLOR,
+              borderWidth: 2,
+              fill: true,
+              tension: 0.3,
+              pointRadius: 3,
+            });
+          }
+
+          // 統計線只取完整年度（月薪例外），避免未滿一年的年份拉低
+          if (primaryYData.length > 0) {
+            const all = xLabels.map((_, i) => i);
+            const full = all.filter(
+              (i) => metricType === "salary" || paidCounts[i] >= 12,
+            );
+            const idx = full.length >= 2 ? full : all;
+            const ys = idx.map((i) => primaryYData[i]);
+            const line = (label, values, color, dash) => ({
+              type: "line",
+              label,
+              data: values,
+              borderColor: color,
+              borderDash: dash,
+              borderWidth: 1.5,
+              fill: false,
+              pointRadius: 0,
+              tension: 0,
+              order: -1,
+              stack: isStacked ? label : undefined, // 不參與堆疊
+            });
+
+            if (showTrend) {
+              const { slope, intercept } = calculateLinearRegression(idx, ys);
+              datasets.push(
+                line("趨勢線", all.map((x) => slope * x + intercept), "#facc15", [6, 4]),
+              );
+            }
+            if (showAvg) {
+              const avgValue = ys.reduce((a, b) => a + b, 0) / ys.length;
+              datasets.push(
+                line("平均值", new Array(all.length).fill(avgValue), "rgba(255,255,255,0.6)", [5, 5]),
+              );
+            }
+            if (showMedian) {
+              datasets.push(
+                line("中位數", new Array(all.length).fill(calculateMedian(ys)), "#a78bfa", [2, 3]),
+              );
+            }
+          }
+
+          return { labels: xLabels, datasets };
+        }, [data, metricType, showTrend, showAvg, showMedian, dynamicFields, paidCounts]);
+
+        const chartOptions = {
+          interaction: { mode: "index", intersect: false },
+          scales: {
+            x: {
+              stacked: isStacked,
+              offset: true,
+              grid: { color: "rgba(255,255,255,0.05)" },
+              ticks: {
+                color: "#94a3b8",
+                // 未滿一年的年度加註已發薪月份
+                callback: function (value, index) {
+                  const label = this.getLabelForValue(value);
+                  const n = paidCounts[index];
+                  return n < 12 ? `${label} (1–${n}月)` : label;
+                },
+              },
+            },
+            y: {
+              stacked: isStacked,
+              beginAtZero: isStacked,
+              grace: isStacked ? "10%" : 0,
+              grid: { color: "rgba(255,255,255,0.05)" },
+              ticks: { color: "#94a3b8" },
+            },
+          },
+          plugins: {
+            legend: { labels: { color: "#94a3b8", font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                title: (items) => `年度: ${items[0].label}`,
+                label: (item) =>
+                  `${item.dataset.label || ""}: ${new Intl.NumberFormat("zh-TW").format(Math.round(item.parsed.y))}`,
+                footer: (items) => {
+                  if (!isStacked) return "";
+                  const sum = items
+                    .filter((it) => it.dataset.stack === "income")
+                    .reduce((s, it) => s + it.parsed.y, 0);
+                  return "總計: " + new Intl.NumberFormat("zh-TW").format(sum);
+                },
+              },
+            },
+            extraPlugins: [
+              {
+                id: "stack-total-labels",
+                afterDatasetsDraw: (chart) => {
+                  if (!isStacked) return;
+                  const { ctx, scales: { x, y } } = chart;
+                  const stacks = chart.data.datasets.filter(
+                    (ds, i) => ds.stack === "income" && chart.isDatasetVisible(i),
+                  );
+                  const compact = x.width / chart.data.labels.length < 80;
+                  ctx.save();
+                  ctx.textAlign = "center";
+                  ctx.fillStyle = "rgba(255,255,255,0.95)";
+                  ctx.font = compact ? "600 10px Inter" : "600 11px Inter";
+                  chart.data.labels.forEach((_, i) => {
+                    const sum = stacks.reduce((s, ds) => s + (ds.data[i] || 0), 0);
+                    if (sum <= 0) return;
+                    drawHaloText(
+                      ctx,
+                      compact ? `${(sum / 10000).toFixed(0)}萬` : formatMoney(Math.round(sum)),
+                      x.getPixelForValue(i),
+                      y.getPixelForValue(sum) - 6,
+                    );
+                  });
+                  ctx.restore();
+                },
+              },
+            ],
+          },
+        };
+
+        return (
+          <div className="analysis-container">
+            <div
+              className="glass-card"
+              style={{ display: "flex", flexDirection: "column", flex: "3 1 480px" }}
+            >
+              <div className="card-head">
+                <div>
+                  <h3>薪資成長趨勢</h3>
+                  <span className="card-sub">
+                    統計線只取完整年度；未滿一年以 (1–n月) 標示
+                  </span>
+                </div>
+                <div className="card-tools">
+                  <select
+                    value={metricType}
+                    onChange={(e) => setMetricType(e.target.value)}
+                    className="chart-select"
+                    aria-label="圖表指標"
+                  >
+                    <option value="all_stacked">總收入堆疊</option>
+                    <option value="total">年度總收入</option>
+                    <option value="salary">月薪</option>
+                    {dynamicFields.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                  {[
+                    ["趨勢線", showTrend, setShowTrend],
+                    ["平均", showAvg, setShowAvg],
+                    ["中位數", showMedian, setShowMedian],
+                  ].map(([label, on, set]) => (
+                    <button
+                      key={label}
+                      className="chip-toggle"
+                      aria-pressed={on}
+                      onClick={() => set(!on)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <ChartView
+                type={isStacked ? "bar" : "line"}
+                data={chartData}
+                options={chartOptions}
+              />
+            </div>
+
+            <div className="glass-card" style={{ flex: "2 1 360px" }}>
+              <div className="card-head">
+                <div>
+                  <h3>加薪歷程明細</h3>
+                  {raiseStats && (
+                    <span className="card-sub">
+                      共 {raiseStats.count} 次 · 平均調幅{" "}
+                      {raiseStats.avgPct.toFixed(1)}% · 平均間隔{" "}
+                      {raiseStats.avgInterval.toFixed(0)} 個月 · 累計成長{" "}
+                      {(raiseStats.growth * 100).toFixed(0)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="raise-history">
+                {[...raises].reverse().map((r, i) => (
+                  <div className="rec-card" key={i}>
+                    <div className="rec-card-head"><span>{r.year}年 {r.month}月</span><span className="delta good">＋{r.percent.toFixed(1)}%</span></div>
+                    <div className="rec-line"><span>調整後月薪</span><b className="raise-amount">{formatMoney(r.new)}</b></div>
+                    <div className="rec-line"><span>原薪資</span><b>{formatMoney(r.old)}</b></div>
+                    <div className="rec-line"><span>增加金額</span><b>＋{formatMoney(r.diff)}</b></div>
+                    <div className="rec-line"><span>距上次調整</span><b>{r.interval > 0 ? `${r.interval} 個月` : "—"}</b></div>
+                  </div>
+                ))}
+                {!raises.length && <p className="empty-inline">尚無加薪紀錄</p>}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const WelfareDashboard = ({ welfareData = [], isEditing, onUpdate }) => {
+        const dataByYear = useMemo(() => {
+          if (!welfareData || welfareData.length === 0) return {};
+          const grouped = {};
+          welfareData.forEach((item, index) => {
+            const year = item.year;
+            if (!grouped[year]) grouped[year] = [];
+            grouped[year].push({ ...item, originalIndex: index });
+          });
+          return grouped;
+        }, [welfareData]);
+
+        const years = Object.keys(dataByYear).sort((a, b) => b - a);
+        const [expandedYears, setExpandedYears] = useState(
+          () => new Set(years.slice(0, 1)),
+        );
+
+
+        const handleItemEdit = (originalIndex, field, value) => {
+          let newData = [...welfareData];
+          if (field === "amount" || field === "year") {
+            value = parseInt(value) || 0;
+          }
+          newData[originalIndex] = {
+            ...newData[originalIndex],
+            [field]: value,
+          };
+          onUpdate(newData);
+        };
+
+        const deleteRecord = (originalIndex) => {
+          if (!confirm(`刪除「${welfareData[originalIndex].item}」這筆紀錄？`)) return;
+          const newData = welfareData.filter(
+            (_, index) => index !== originalIndex,
+          );
+          onUpdate(newData);
+        };
+
+        const addNewRecord = (year) => {
+          onUpdate([
+            ...welfareData,
+            { year: parseInt(year), item: "新福利項目", amount: 0 },
+          ]);
+        };
+
+        const amountInput = (item) => (
+          <input
+            className="edit-input"
+            type="number"
+            inputMode="numeric"
+            value={item.amount}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) =>
+              handleItemEdit(item.originalIndex, "amount", e.target.value)
+            }
+            style={{ width: "110px" }}
+          />
+        );
+
+        return (
+          <div className="welfare-dashboard">
+            {years.map((year) => {
+              const yearItems = dataByYear[year];
+              const yearTotals = yearItems.reduce(
+                (acc, cur) => {
+                  const val = cur.amount || 0;
+                  if (cur.type === "lottery") acc.lottery += val;
+                  else if (val < 0) acc.deduction += Math.abs(val);
+                  else acc.welfare += val;
+                  return acc;
+                },
+                { welfare: 0, lottery: 0, deduction: 0 },
+              );
+
+              return (
+                <YearAccordion
+                  key={year}
+                  title={parseInt(year) + 1911}
+                  roc={year}
+                  count={yearItems.length}
+                  expanded={expandedYears.has(year)}
+                  onToggle={() => setExpandedYears((s) => toggleInSet(s, year))}
+                  actions={isEditing && <AddButton onClick={() => addNewRecord(year)} />}
+                  stats={[
+                    {
+                      label: "福利所得",
+                      value: formatMoney(yearTotals.welfare - yearTotals.deduction),
+                    },
+                    {
+                      label: "機會中獎",
+                      value: formatMoney(yearTotals.lottery),
+                      color: yearTotals.lottery ? "var(--warning-color)" : undefined,
+                    },
+                  ]}
+                >
+                  {<div className="rec-list">
+                      {yearItems.map((item, idx) => (
+                        <div className="rec-card" key={idx}>
+                          <div className="rec-card-head">
+                            {isEditing ? (
+                              <input
+                                className="edit-input"
+                                value={item.item}
+                                onChange={(e) =>
+                                  handleItemEdit(
+                                    item.originalIndex,
+                                    "item",
+                                    e.target.value,
+                                  )
+                                }
+                                style={{ width: "55%" }}
+                              />
+                            ) : (
+                              <span>{item.item}</span>
+                            )}
+                            <span
+                              className="delta flat"
+                              style={
+                                item.type === "lottery"
+                                  ? { color: "var(--warning-color)" }
+                                  : undefined
+                              }
+                            >
+                              {item.type === "lottery" ? "中獎" : "一般"}
+                            </span>
+                            {isEditing && (
+                              <DeleteButton
+                                onClick={() => deleteRecord(item.originalIndex)}
+                              />
+                            )}
+                          </div>
+                          <div className="rec-line">
+                            <span>
+                              {item.type === "lottery" ? "機會中獎" : "福利所得"}
+                            </span>
+                            {isEditing ? (
+                              amountInput(item)
+                            ) : (
+                              <b
+                                style={{
+                                  color:
+                                    item.type !== "lottery" && item.amount < 0
+                                      ? "var(--danger-color)"
+                                      : undefined,
+                                }}
+                              >
+                                {formatMoney(item.amount)}
+                              </b>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>}
+                </YearAccordion>
+              );
+            })}
+          </div>
+        );
+      };
+
+      const App = () => {
+        const [activeTab, setActiveTab] = useState(0);
+        const [allData, setAllData] = useState(null);
+        const [authenticated, setAuthenticated] = useState(false);
+        const authRef = useRef(false);
+        const busyRef = useRef(false);
+        const dataRef = useRef(null);
+        const autoFaceRef = useRef(null);
+        const [salaryRecs, setSalaryRecs] = useState([]);
+        const [isEditing, setIsEditing] = useState(false);
+        const [isDirty, setIsDirty] = useState(false); // 有尚未寫回 HTML 的變更
+        const dirtyRef = useRef(false);
+        const [unlockError, setUnlockError] = useState("");
+        const [showSettings, setShowSettings] = useState(false);
+        const [passkeyPending, setPasskeyPending] = useState(false);
+        const [saveMessage, setSaveMessage] = useState("");
+        const [showChangePassword, setShowChangePassword] = useState(false);
+        const [securityNote, setSecurityNote] = useState(""); // 舊加密格式 / 密碼偏短提醒
+        const [passkeyReady, setPasskeyReady] = useState(() => SalaryPasskey.hasPasskey());
+        const [passkeySupported, setPasskeySupported] = useState(false);
+        const [passkeyBusy, setPasskeyBusy] = useState(false);
+        const [passkeyMessage, setPasskeyMessage] = useState("");
+        const [unlockBusy, setUnlockBusy] = useState(false);
+        const passwordRef = useRef(null); // 解鎖用的密碼，更新 HTML 沿用
+        const [embeddedPayload, setPayload] = useState(() => EmbeddedStore.read());
+        const payloadRef = useRef(embeddedPayload);
+        const revisionRef = useRef(0);
+        const importedRef = useRef(false);
+        const [importName, setImportName] = useState("");
+        const [loadingData, setLoadingData] = useState(true);
+        const writeRef = useRef(Promise.resolve());
+        const writeBusyRef = useRef(false);
+        const writeVersionRef = useRef(0);
+        const [backupPayload, setBackupPayload] = useState("");
+        const skipAutoRef = useRef(false);
+        useEffect(() => {
+          let active = true;
+          SalaryStore.read().then(record => {
+            if (!active) return;
+            if (record) { payloadRef.current = record.payload; revisionRef.current = record.revision; setPayload(record.payload); }
+            setLoadingData(false);
+            if (payloadRef.current && !skipAutoRef.current) void autoFaceRef.current?.start();
+          }).catch(error => { if (active) { setLoadingData(false); setUnlockError(error.message); } });
+          return () => { active = false; };
+        }, []);
+        useEffect(() => {
+          let active = true;
+          SalaryPasskey.supportsPasskey().then(supported => { if (active) setPasskeySupported(supported); });
+          return () => { active = false; };
+        }, []);
+
+        useEffect(() => {
+          dirtyRef.current = isDirty;
+        }, [isDirty]);
+        // 關閉/重新整理前提醒：資料只存在記憶體，未儲存就會遺失
+        useUnloadGuard(dirtyRef);
+
+        const saveLocal = (data, password) => {
+          const version = ++writeVersionRef.current;
+          const snapshot = JSON.parse(JSON.stringify(data));
+          writeBusyRef.current = true; dirtyRef.current = true;
+          setIsDirty(true); setSaveMessage("正在加密儲存…"); setBackupPayload("");
+          const task = writeRef.current.then(async () => {
+            if (version !== writeVersionRef.current) return;
+            const payload = await CryptoUtils.encrypt(snapshot, password);
+            const record = await SalaryStore.write(payload, revisionRef.current);
+            revisionRef.current = record.revision; payloadRef.current = payload; setPayload(payload);
+            if (version === writeVersionRef.current) {
+              dirtyRef.current = false; setIsDirty(false); setSaveMessage("已儲存於這部手機");
+            }
+          });
+          writeRef.current = task.catch(error => {
+            if (version === writeVersionRef.current) setSaveMessage(error.message);
+          }).finally(() => {
+            if (version === writeVersionRef.current) { writeBusyRef.current = false; void autoFaceRef.current?.resume(); }
+          });
+          return task;
+        };
+        const updateSalary = (newData) => {
+          const data = { ...dataRef.current, salaryData: newData };
+          dataRef.current = data; setAllData(data); setSalaryRecs(newData);
+          void saveLocal(data, passwordRef.current).catch(() => {});
+        };
+        const updateAllData = (key) => (newData) => {
+          const data = { ...dataRef.current, [key]: newData };
+          dataRef.current = data; setAllData(data);
+          void saveLocal(data, passwordRef.current).catch(() => {});
+        };
+        const getExportData = () => dataRef.current;
+
+        const handleImport = async (file) => {
+          if (!file || busyRef.current || writeBusyRef.current) return;
+          try {
+            if (dirtyRef.current) throw new Error("目前資料尚未儲存，請先匯出加密備份，再重新開啟後匯入。");
+            if (file.size > 20 * 1024 * 1024) throw new Error("檔案過大。");
+            const payload = SalaryStore.extract(await file.text());
+            if (payloadRef.current && !confirm("匯入成功後會取代手機資料。請先保留最新加密備份；是否繼續？")) return;
+            importedRef.current = true;
+            payloadRef.current = payload; setPayload(payload); setImportName(file.name);
+            authRef.current = false; passwordRef.current = null; dataRef.current = null;
+            setAuthenticated(false); setAllData(null); setSalaryRecs([]);
+            setShowSettings(false); setUnlockError(""); setPasskeyMessage(""); setBackupPayload("");
+          } catch (error) { setUnlockError(error.message); setSaveMessage(error.message); }
+        };
+        const cancelImport = async () => {
+          try {
+            const record = await SalaryStore.read();
+            importedRef.current = false; revisionRef.current = record?.revision || 0;
+            payloadRef.current = record?.payload || ""; setPayload(payloadRef.current); setImportName("");
+            setUnlockError("");
+          } catch (error) { setUnlockError(error.message); }
+        };
+
+        const migrateData = (data) => {
+          if (data.taxData) {
+            const mapping = {
+              年度: "year",
+              總額: "expectedTotal",
+              "所得(50)": "salary50",
+              "所得(50)(2)": "salary50_2",
+              利息: "interest",
+              "股利(54C)": "dividend",
+              "獎金(91)": "bonus",
+              "其他(92)": "other",
+            };
+            data.taxData = data.taxData.map((row) => {
+              const newRow = {};
+              Object.keys(row).forEach((k) => {
+                const newKey = mapping[k] || k;
+                newRow[newKey] = row[k];
+              });
+              return newRow;
+            });
+          }
+          return data;
+        };
+
+        const handleUnlock = async (password) => {
+          if (busyRef.current) return false;
+          busyRef.current = true;
+          setUnlockBusy(true);
+          let loaded;
+          try {
+            if (!importedRef.current) {
+              const record = await SalaryStore.read();
+              if (record && !dataRef.current) { payloadRef.current = record.payload; revisionRef.current = record.revision; setPayload(record.payload); }
+            }
+            loaded = SalaryStore.validate(await CryptoUtils.decrypt(payloadRef.current, password));
+            if (importedRef.current || revisionRef.current === 0 || CryptoUtils.needsUpgrade(payloadRef.current)) {
+              const payload = await CryptoUtils.encrypt(loaded, password);
+              const record = await SalaryStore.write(payload, revisionRef.current);
+              revisionRef.current = record.revision; payloadRef.current = payload; setPayload(payload);
+              if (importedRef.current) forgetPasskey();
+              importedRef.current = false; setImportName("");
+              void SalaryOffline.persist();
+            }
+          } catch (e) {
+            setUnlockError(e.message === "解密失敗，密碼錯誤" ? "密碼錯誤，請再試一次" : "解鎖失敗：" + e.message);
+            setUnlockBusy(false);
+            busyRef.current = false;
+            return false;
+          }
+          setUnlockBusy(false);
+          busyRef.current = false;
+          setUnlockError("");
+          if (!loaded.salaryData || !loaded.nhiData) {
+            alert("內嵌資料格式錯誤");
+            return false;
+          }
+          if (loaded["其他(92)Data"] && !loaded.welfareData) {
+            loaded.welfareData = loaded["其他(92)Data"];
+          }
+          authRef.current = true;
+          setAuthenticated(true);
+          if (dataRef.current) {
+            passwordRef.current = password;
+            setPasskeyMessage("");
+            void autoFaceRef.current?.resume();
+            return true;
+          }
+          const migrated = migrateData(loaded);
+          dataRef.current = migrated;
+          setAllData(migrated);
+          setSalaryRecs(migrated.salaryData);
+          passwordRef.current = password;
+          setIsEditing(false);
+          // 舊格式（較少 PBKDF2 迭代）→ 標成未儲存，提醒按「更新 HTML」升級
+          dirtyRef.current = false; setIsDirty(false);
+          setSaveMessage("已儲存於這部手機");
+          setSecurityNote(securityNoteFor(password, false));
+          setPasskeyMessage("");
+          void autoFaceRef.current?.resume();
+          return true;
+        };
+
+        const handlePasskeyLogin = async () => {
+          if (busyRef.current) return;
+          busyRef.current = true;
+          setPasskeyBusy(true);
+          setPasskeyMessage("");
+          try {
+            const password = await SalaryPasskey.unlockPasskey();
+            busyRef.current = false;
+            if (!(await handleUnlock(password))) {
+              setPasskeyMessage("資料密碼可能已變更，請使用密碼登入並重新設定免密登入。");
+            }
+          } catch (error) {
+            setPasskeyMessage(SalaryPasskey.passkeyError(error));
+          } finally { busyRef.current = false; setPasskeyBusy(false); void autoFaceRef.current?.resume(); }
+        };
+
+        const handlePasskeySetup = async () => {
+          if (busyRef.current) return;
+          busyRef.current = true;
+          setPasskeyBusy(true);
+          setPasskeyMessage("");
+          try {
+            const result = passkeyPending
+              ? await SalaryPasskey.completeRegistration(passwordRef.current)
+              : await SalaryPasskey.enrollPasskey(passwordRef.current);
+            setPasskeyPending(!!result.pending);
+            if (result.ready) setPasskeyReady(true);
+            setPasskeyMessage(result.pending
+              ? "已建立通行金鑰。請再點「完成 Face ID 設定」，完成第二次驗證。"
+              : "已啟用，每次開啟或回到網站會自動啟動 Face ID。");
+          } catch (error) {
+            setPasskeyMessage(SalaryPasskey.passkeyError(error));
+          } finally { busyRef.current = false; setPasskeyBusy(false); void autoFaceRef.current?.resume(); }
+        };
+
+        const loginRef = useRef(handlePasskeyLogin);
+        loginRef.current = handlePasskeyLogin;
+        useEffect(() => {
+          const auto = FaceIDCore.autoLogin({
+            enabled: () => !importedRef.current && !!payloadRef.current && SalaryPasskey.hasPasskey(),
+            unlocked: () => authRef.current,
+            busy: () => busyRef.current || writeBusyRef.current,
+            suspend: () => {
+              authRef.current = false;
+              passwordRef.current = null;
+              setAuthenticated(false);
+              setShowSettings(false); setShowChangePassword(false);
+            },
+            unlock: () => loginRef.current(),
+          });
+          autoFaceRef.current = auto;
+          let skip = false;
+          try {
+            skip = sessionStorage.getItem('salary.skip-auto-face') === '1';
+            sessionStorage.removeItem('salary.skip-auto-face');
+          } catch { /* storage unavailable */ }
+          if (!skip && !loadingData) void auto.start();
+          skipAutoRef.current = skip;
+          return () => auto.dispose();
+        }, []);
+
+        const forgetPasskey = () => {
+          try { SalaryPasskey.forgetPasskey(); }
+          catch (error) { setPasskeyMessage(SalaryPasskey.passkeyError(error)); return; }
+          setPasskeyPending(false);
+          setPasskeyReady(false);
+          setPasskeyMessage("已停用此瀏覽器的免密登入。");
+        };
+
+        const handleLock = async () => {
+          await writeRef.current;
+          if (dirtyRef.current) { setSaveMessage("尚未儲存成功，請先匯出加密備份再鎖定。"); return; }
+          dirtyRef.current = false;
+          passwordRef.current = null;
+          try { sessionStorage.setItem('salary.skip-auto-face', '1'); } catch {
+            authRef.current = false; setAuthenticated(false); setShowSettings(false);
+            setAllData(null); setSalaryRecs([]); return;
+          }
+          location.reload();
+        };
+
+        const handleSaveHtml = async (password) => {
+          try {
+            if (writeBusyRef.current) { setPasskeyMessage("請等本機儲存完成再匯出。"); return false; }
+            if (dirtyRef.current && !backupPayload) {
+              setBackupPayload(await CryptoUtils.encrypt(getExportData(), password));
+              setPasskeyMessage("加密備份已準備，請再按「儲存加密副本」。");
+              return false;
+            }
+            const saved = await SalaryStore.backup(backupPayload || payloadRef.current);
+            if (saved) { setPasskeyMessage("已開啟加密備份儲存，請確認檔案已存到「我的 iPhone」或電腦。"); setBackupPayload(""); }
+            return saved;
+          } catch (e) {
+            setPasskeyMessage("匯出失敗：" + e.message);
+            return false;
+          }
+        };
+
+        // 改密碼＝用新密碼重新加密並寫回 HTML；取消存檔則維持舊密碼
+        const handleChangePassword = async (newPassword) => {
+          setShowChangePassword(false);
+          await writeRef.current;
+          busyRef.current = true;
+          try {
+            await saveLocal(getExportData(), newPassword);
+            passwordRef.current = newPassword; forgetPasskey();
+            setSecurityNote(securityNoteFor(newPassword, false));
+            setSaveMessage("密碼已更新，請重新啟用 Face ID 並匯出新備份。");
+          } catch (error) { setSaveMessage(error.message); }
+          finally { busyRef.current = false; void autoFaceRef.current?.resume(); }
+        };
+
+        const addNewYear = () => {
+          let updatedSalaryRecs = [...salaryRecs];
+          let updatedNhiData = [...(allData?.nhiData || [])];
+
+          // 1. Handle Salary Record (Tab 0)
+          if (salaryRecs.length > 0) {
+            const lastrec = salaryRecs[salaryRecs.length - 1];
+            const newRec = JSON.parse(JSON.stringify(lastrec));
+
+            newRec.ceYear = lastrec.ceYear + 1;
+            newRec.expectedTotal = 0; // Explicitly reset common total field if present
+
+            // Reset dynamic numeric fields (excluding special ones)
+            Object.keys(newRec).forEach((k) => {
+              if (!SALARY_EXCLUDE.includes(k) && typeof newRec[k] === "number") {
+                newRec[k] = 0;
+              }
+            });
+
+            updatedSalaryRecs.push(newRec);
+            updatedSalaryRecs.sort((a, b) => a.ceYear - b.ceYear);
+            setSalaryRecs(updatedSalaryRecs);
+          }
+
+          // 2. Handle NHI Record (Tab 2)
+          if (updatedNhiData.length > 0) {
+            const years = [
+              ...new Set(updatedNhiData.map((d) => d.date.split("-")[0])),
+            ].sort();
+            const lastYearStr = years[years.length - 1];
+            const nextYear = parseInt(lastYearStr) + 1;
+
+            // Copy all records from the latest year as template
+            const lastYearRecs = updatedNhiData.filter((d) =>
+              d.date.startsWith(lastYearStr),
+            );
+            if (lastYearRecs.length > 0) {
+              updatedNhiData.push(
+                ...lastYearRecs.map((rec) => ({
+                  ...rec,
+                  date: rec.date.replace(lastYearStr, nextYear.toString()),
+                })),
+              );
+            } else {
+              updatedNhiData.push({
+                date: `${nextYear}-01-01`,
+                bracket: 462000,
+                income: 0,
+                is211: false,
+                note: "新年度初始紀錄",
+              });
+            }
+            updatedNhiData.sort((a, b) => a.date.localeCompare(b.date));
+          }
+
+          const data = {
+            ...dataRef.current,
+            salaryData: updatedSalaryRecs,
+            nhiData: updatedNhiData,
+          };
+          dataRef.current = data; setAllData(data); setSalaryRecs(updatedSalaryRecs);
+          void saveLocal(data, passwordRef.current).catch(() => {});
+
+          if (!isEditing) setIsEditing(true);
+
+          setTimeout(() => {
+            const container =
+              document.querySelector(".table-container") ||
+              document.querySelector(".nhi-dashboard");
+            if (container) container.scrollTop = container.scrollHeight;
+          }, 100);
+        };
+
+        const tabs = ["年薪紀錄", "薪資成長", "二代健保", "福利明細", "所得紀錄"];
+        const editableTab = activeTab !== 1;
+
+        if (!authenticated || !allData) return (
+          <SalaryMobile.Login
+            hasCredential={passkeyReady && !importedRef.current}
+            hasData={!!embeddedPayload}
+            busy={unlockBusy || passkeyBusy}
+            error={passkeyMessage || unlockError}
+            onPassword={(password) => { setPasskeyMessage(""); return handleUnlock(password); }}
+            onPasskey={handlePasskeyLogin}
+            onImport={handleImport}
+            onCancelImport={cancelImport}
+            importName={importName}
+            loading={loadingData}
+          />
+        );
+
+        return (
+          <div className="app-container">
+            <SalaryMobile.Header
+              title={tabs[activeTab]}
+              editable={editableTab}
+              editing={isEditing}
+              dirty={isDirty}
+              onEdit={() => setIsEditing(!isEditing)}
+              onLock={handleLock}
+              onSettings={() => setShowSettings(true)}
+            />
+            <SalaryMobile.Offline busy={isDirty || unlockBusy || passkeyBusy || writeBusyRef.current} />
+            <ChangePasswordModal
+              isOpen={showChangePassword}
+              currentPassword={passwordRef.current}
+              onConfirm={handleChangePassword}
+              onCancel={() => setShowChangePassword(false)}
+            />
+            {showSettings && (
+              <SalaryMobile.Settings
+                onClose={() => setShowSettings(false)}
+                ready={passkeyReady}
+                pending={passkeyPending}
+                busy={passkeyBusy || writeBusyRef.current}
+                supported={passkeySupported}
+                message={passkeyMessage}
+                securityNote={securityNote}
+                onSetup={handlePasskeySetup}
+                onForget={forgetPasskey}
+                onChangePassword={() => { setShowSettings(false); setShowChangePassword(true); }}
+                onExport={() => handleSaveHtml(passwordRef.current)}
+                onImport={handleImport}
+              />
+            )}
+            <main className="content-area" role="tabpanel" aria-label={tabs[activeTab]}>
+              {isDirty && <p className="inline-notice">尚未儲存完成，請等待「已儲存於這部手機」再關閉。</p>}
+              {saveMessage && <p className="inline-notice" role="status">{saveMessage}</p>}
+              {isEditing && (activeTab === 0 || activeTab === 2) && (
+                <div className="edit-toolbar"><button className="btn btn-ghost" onClick={addNewYear}>＋ 新增年度</button></div>
+              )}
+              {(activeTab === 0 || activeTab === 1) && <SalaryKpiStrip data={salaryRecs} />}
+              {activeTab === 0 && <YearTable data={salaryRecs} setData={updateSalary} isEditing={isEditing} />}
+              {activeTab === 1 && <AnalysisDashboard data={salaryRecs} />}
+              {activeTab === 2 && <NHIDashboard nhiData={allData.nhiData} isEditing={isEditing} onUpdate={updateAllData("nhiData")} />}
+              {activeTab === 3 && <WelfareDashboard welfareData={allData.welfareData} isEditing={isEditing} onUpdate={updateAllData("welfareData")} />}
+              {activeTab === 4 && <DataTable data={allData.taxData} title="年度所得稅紀錄" isEditing={isEditing} onUpdate={updateAllData("taxData")} />}
+            </main>
+            <SalaryMobile.Nav tabs={tabs} activeTab={activeTab} onChange={(index) => { setActiveTab(index); setIsEditing(false); window.scrollTo({ top: 0 }); }} />
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+    <!-- 內嵌的加密薪資資料（AES-256-GCM + PBKDF2，CryptoUtils.encrypt 輸出）。由「更新 HTML」改寫，勿手動編輯。 -->
+    <script type="text/plain" id="embedded-data"></script>
+    <!-- 必須是 body 最後一個 script：在 Babel/React 改動 DOM 前保存原始頁面。
+         找不到 dashboard-common.js（HTML 被移到別的資料夾）時改顯示提示，而不是一片白。 -->
+    <script>
+      if (window.EmbeddedStore) {
+        EmbeddedStore.snapshot();
+      } else {
+        document.body.insertAdjacentHTML(
+          "afterbegin",
+          '<p style="margin:40px auto;max-width:560px;padding:16px 20px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb;color:#92400e;font:15px/1.6 sans-serif">' +
+            "載入失敗：找不到 dashboard-common.js。<br>這個 HTML 必須和 dashboard-common.js、dashboard-common.css 放在同一個資料夾，請把它移回原資料夾再開啟。</p>",
+        );
+      }
+    </script></body></html>
