@@ -1,8 +1,14 @@
-/* Only ciphertext is persisted. Vaults are scoped to this app directory. */
+/* Only ciphertext is persisted. Vaults are scoped to this app directory.
+   Payload: 'k1:' + iv + '.' + ct (base64url), sealed with the link key. */
 (function () {
   'use strict';
   const scope = new URL('./', location.href).pathname;
   const database = `salary.offline:${scope}`;
+  const CONTEXT = 'salary/data/v1';
+  const CURRENT = /^k1:[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22,}$/;
+  const LEGACY = /^(?:v2:\d+:)?[A-Za-z0-9+/]+=*$/;
+  const OLD_FILE = '這是舊的密碼加密檔，請在電腦執行 npm run link 轉換後再匯入。';
+  const isCurrent = payload => typeof payload === 'string' && CURRENT.test(payload);
   let opened;
   function db() {
     if (!opened) opened = new Promise((resolve, reject) => {
@@ -23,7 +29,7 @@
     });
   }
   async function write(payload, expectedRevision) {
-    if (!/^v2:600000:[A-Za-z0-9+/]+=*$/.test(payload)) throw new Error('拒絕儲存未加密的資料。');
+    if (!isCurrent(payload)) throw new Error('拒絕儲存未加密的資料。');
     const connection = await db();
     return new Promise((resolve, reject) => {
       const transaction = connection.transaction('vault', 'readwrite');
@@ -52,10 +58,9 @@
       // Parse inert HTML as text. Imported scripts are never inserted or executed.
       payload = /<script\b[^>]*\bid=["']embedded-data["'][^>]*>([^<]+)<\/script>/i.exec(text)?.[1]?.trim();
     }
-    if (typeof payload !== 'string' || !/^(?:v2:(?:600000|100000):)?[A-Za-z0-9+/]+=*$/.test(payload) || payload.length < 80) {
-      throw new Error('找不到有效的加密薪資資料。請選原 salary.html 或薪資加密備份。');
-    }
-    return payload;
+    if (isCurrent(payload)) return payload;
+    if (typeof payload === 'string' && payload.length >= 80 && LEGACY.test(payload)) throw new Error(OLD_FILE);
+    throw new Error('找不到有效的加密薪資資料。請選薪資加密備份。');
   }
   function validate(data) {
     if (!data || typeof data !== 'object' || !Array.isArray(data.salaryData) || !Array.isArray(data.nhiData)) throw new Error('薪資資料格式不正確。');
@@ -64,6 +69,19 @@
     }
     for (const field of ['welfareData', 'taxData', '其他(92)Data']) if (data[field] !== undefined && !Array.isArray(data[field])) throw new Error('薪資明細格式不正確。');
     return data;
+  }
+  async function seal(key, data) {
+    const box = await LinkKey.seal(key, JSON.stringify(data), CONTEXT);
+    return 'k1:' + box.iv + '.' + box.ct;
+  }
+  /** 金鑰不符時丟出 code 'wrong-key'；資料格式錯誤另外回報。 */
+  async function open(key, payload) {
+    if (!isCurrent(payload)) throw new Error(OLD_FILE);
+    const [iv, ct] = payload.slice(3).split('.');
+    let text;
+    try { text = await LinkKey.open(key, { iv, ct }, CONTEXT); }
+    catch { throw Object.assign(new Error('這個檔案不是用這條專屬連結加密的。'), { code: 'wrong-key' }); }
+    return validate(JSON.parse(text));
   }
   async function backup(payload) {
     const file = new File([JSON.stringify({ format: 'salary-backup', version: 1, exportedAt: new Date().toISOString(), payload }, null, 2)],
@@ -77,5 +95,5 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     return true;
   }
-  window.SalaryStore = { read, write, extract, validate, backup };
+  window.SalaryStore = { read, write, extract, validate, seal, open, isCurrent, backup };
 })();

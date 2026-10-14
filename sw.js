@@ -1,8 +1,8 @@
 // Generated from the complete, data-free app bundle.
-const VERSION = "0a8cd4d567a7a4f4";
+const VERSION = "c806d2e44cc458c9";
 const PREFIX = 'salary-offline:' + self.registration.scope + ':';
 const CACHE = PREFIX + VERSION;
-const FILES = ["index.html","salary.html","dashboard-common.css","dashboard-common.js","faceid-core.js","salary-passkey.js","salary-mobile.js","salary-mobile.css","salary-store.js","salary-offline.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","vendor/react.js","vendor/react-dom.js","vendor/babel.js","vendor/chart.js","vendor/LICENSES.txt"];
+const FILES = ["index.html","salary.html","dashboard-common.css","dashboard-common.js","link-key.js","salary-mobile.js","salary-mobile.css","salary-store.js","salary-offline.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","vendor/react.js","vendor/react-dom.js","vendor/babel.js","vendor/chart.js","vendor/LICENSES.txt"];
 const urls = FILES.map(file => new URL(file, self.registration.scope).href);
 self.addEventListener('install', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);

@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-title" content="薪資看板">
 
     <!-- 第三方腳本：鎖定版本 + SRI（integrity）雜湊，CDN 檔案被竄改時瀏覽器會拒絕執行，
-         避免輸入的密碼被竊取。升級版本時要一併更新 integrity。 -->
+         避免網址金鑰與薪資被竊取。升級版本時要一併更新 integrity。 -->
     <!-- React & Babel -->
     <script src="vendor/react.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
     <script src="vendor/react-dom.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
@@ -29,12 +29,11 @@
 
     <!-- Shared base styles + components (classic script, works over file://) -->
     <link rel="stylesheet" href="dashboard-common.css?v=20261013-mobile3">
-    <script src="dashboard-common.js?v=20261013-mobile3"></script>
-    <script src="faceid-core.js?v=20261013-faceid1"></script>
-    <script src="salary-passkey.js?v=20261013-faceid1"></script>
-    <script src="salary-store.js"></script>
+    <script src="dashboard-common.js?v=20261014-link1"></script>
+    <script src="link-key.js?v=20261014-link1"></script>
+    <script src="salary-store.js?v=20261014-link1"></script>
     <script src="salary-offline.js"></script>
-    <script src="salary-mobile.js?v=20261013-faceid1"></script>
+    <script src="salary-mobile.js?v=20261014-link1"></script>
 
     <!-- Use device fonts so the phone UI does not wait for external services. -->
     <style>
@@ -506,14 +505,13 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="salary-mobile.css?v=20261013-mobile3">
+    <link rel="stylesheet" href="salary-mobile.css?v=20261014-link1">
   </head>
   <body>
     <div id="root"></div>
     <script type="text/babel" data-presets="react-classic">
       const { useState, useEffect, useMemo, useRef } = React;
-      // formatMoney / PasswordModal / ChartView / CryptoUtils / DeltaBadge /
-      // ChangePasswordModal / EmbeddedStore / securityNoteFor / drawHaloText /
+      // formatMoney / ChartView / DeltaBadge / drawHaloText /
       // useUnloadGuard / EmptyState → dashboard-common.js
 
       // All screen widths use the phone card layout.
@@ -2042,111 +2040,39 @@
         const authRef = useRef(false);
         const busyRef = useRef(false);
         const dataRef = useRef(null);
-        const autoFaceRef = useRef(null);
         const [salaryRecs, setSalaryRecs] = useState([]);
         const [isEditing, setIsEditing] = useState(false);
-        const [isDirty, setIsDirty] = useState(false); // 有尚未寫回 HTML 的變更
+        const [isDirty, setIsDirty] = useState(false); // 有尚未寫入手機的變更
         const dirtyRef = useRef(false);
-        const [unlockError, setUnlockError] = useState("");
+        const [loginError, setLoginError] = useState("");
         const [showSettings, setShowSettings] = useState(false);
-        const [passkeyPending, setPasskeyPending] = useState(false);
         const [saveMessage, setSaveMessage] = useState("");
-        const [showChangePassword, setShowChangePassword] = useState(false);
-        const [securityNote, setSecurityNote] = useState(""); // 舊加密格式 / 密碼偏短提醒
-        const [passkeyReady, setPasskeyReady] = useState(() => SalaryPasskey.hasPasskey());
-        const [passkeySupported, setPasskeySupported] = useState(false);
-        const [passkeyBusy, setPasskeyBusy] = useState(false);
-        const [passkeyMessage, setPasskeyMessage] = useState("");
-        const [unlockBusy, setUnlockBusy] = useState(false);
-        const passwordRef = useRef(null); // 解鎖用的密碼，更新 HTML 沿用
-        const [embeddedPayload, setPayload] = useState(() => EmbeddedStore.read());
-        const payloadRef = useRef(embeddedPayload);
+        // 儲存中／已儲存只是短暫提示，不佔版面；錯誤才用常駐提示。
+        const SAVE_STATES = ["正在加密儲存…", "已儲存於這部手機"];
+        useEffect(() => {
+          if (saveMessage !== SAVE_STATES[1]) return;
+          const timer = setTimeout(() => setSaveMessage(message => message === SAVE_STATES[1] ? "" : message), 2500);
+          return () => clearTimeout(timer);
+        }, [saveMessage]);
+        const [settingsMessage, setSettingsMessage] = useState("");
+        const [busy, setBusy] = useState(false);
+        const [loading, setLoading] = useState(true);
+        // 網址金鑰（不可匯出的 CryptoKey）；只存在記憶體與這個網站的 IndexedDB。
+        const keyRef = useRef(null);
+        const [hasKey, setHasKey] = useState(false);
+        const [legacy, setLegacy] = useState(false);
+        const payloadRef = useRef("");
         const revisionRef = useRef(0);
-        const importedRef = useRef(false);
-        const [importName, setImportName] = useState("");
-        const [loadingData, setLoadingData] = useState(true);
         const writeRef = useRef(Promise.resolve());
         const writeBusyRef = useRef(false);
         const writeVersionRef = useRef(0);
         const [backupPayload, setBackupPayload] = useState("");
-        const skipAutoRef = useRef(false);
-        useEffect(() => {
-          let active = true;
-          SalaryStore.read().then(record => {
-            if (!active) return;
-            if (record) { payloadRef.current = record.payload; revisionRef.current = record.revision; setPayload(record.payload); }
-            setLoadingData(false);
-            if (payloadRef.current && !skipAutoRef.current) void autoFaceRef.current?.start();
-          }).catch(error => { if (active) { setLoadingData(false); setUnlockError(error.message); } });
-          return () => { active = false; };
-        }, []);
-        useEffect(() => {
-          let active = true;
-          SalaryPasskey.supportsPasskey().then(supported => { if (active) setPasskeySupported(supported); });
-          return () => { active = false; };
-        }, []);
 
         useEffect(() => {
           dirtyRef.current = isDirty;
         }, [isDirty]);
         // 關閉/重新整理前提醒：資料只存在記憶體，未儲存就會遺失
         useUnloadGuard(dirtyRef);
-
-        const saveLocal = (data, password) => {
-          const version = ++writeVersionRef.current;
-          const snapshot = JSON.parse(JSON.stringify(data));
-          writeBusyRef.current = true; dirtyRef.current = true;
-          setIsDirty(true); setSaveMessage("正在加密儲存…"); setBackupPayload("");
-          const task = writeRef.current.then(async () => {
-            if (version !== writeVersionRef.current) return;
-            const payload = await CryptoUtils.encrypt(snapshot, password);
-            const record = await SalaryStore.write(payload, revisionRef.current);
-            revisionRef.current = record.revision; payloadRef.current = payload; setPayload(payload);
-            if (version === writeVersionRef.current) {
-              dirtyRef.current = false; setIsDirty(false); setSaveMessage("已儲存於這部手機");
-            }
-          });
-          writeRef.current = task.catch(error => {
-            if (version === writeVersionRef.current) setSaveMessage(error.message);
-          }).finally(() => {
-            if (version === writeVersionRef.current) { writeBusyRef.current = false; void autoFaceRef.current?.resume(); }
-          });
-          return task;
-        };
-        const updateSalary = (newData) => {
-          const data = { ...dataRef.current, salaryData: newData };
-          dataRef.current = data; setAllData(data); setSalaryRecs(newData);
-          void saveLocal(data, passwordRef.current).catch(() => {});
-        };
-        const updateAllData = (key) => (newData) => {
-          const data = { ...dataRef.current, [key]: newData };
-          dataRef.current = data; setAllData(data);
-          void saveLocal(data, passwordRef.current).catch(() => {});
-        };
-        const getExportData = () => dataRef.current;
-
-        const handleImport = async (file) => {
-          if (!file || busyRef.current || writeBusyRef.current) return;
-          try {
-            if (dirtyRef.current) throw new Error("目前資料尚未儲存，請先匯出加密備份，再重新開啟後匯入。");
-            if (file.size > 20 * 1024 * 1024) throw new Error("檔案過大。");
-            const payload = SalaryStore.extract(await file.text());
-            if (payloadRef.current && !confirm("匯入成功後會取代手機資料。請先保留最新加密備份；是否繼續？")) return;
-            importedRef.current = true;
-            payloadRef.current = payload; setPayload(payload); setImportName(file.name);
-            authRef.current = false; passwordRef.current = null; dataRef.current = null;
-            setAuthenticated(false); setAllData(null); setSalaryRecs([]);
-            setShowSettings(false); setUnlockError(""); setPasskeyMessage(""); setBackupPayload("");
-          } catch (error) { setUnlockError(error.message); setSaveMessage(error.message); }
-        };
-        const cancelImport = async () => {
-          try {
-            const record = await SalaryStore.read();
-            importedRef.current = false; revisionRef.current = record?.revision || 0;
-            payloadRef.current = record?.payload || ""; setPayload(payloadRef.current); setImportName("");
-            setUnlockError("");
-          } catch (error) { setUnlockError(error.message); }
-        };
 
         const migrateData = (data) => {
           if (data.taxData) {
@@ -2172,174 +2098,151 @@
           return data;
         };
 
-        const handleUnlock = async (password) => {
-          if (busyRef.current) return false;
-          busyRef.current = true;
-          setUnlockBusy(true);
-          let loaded;
-          try {
-            if (!importedRef.current) {
-              const record = await SalaryStore.read();
-              if (record && !dataRef.current) { payloadRef.current = record.payload; revisionRef.current = record.revision; setPayload(record.payload); }
-            }
-            loaded = SalaryStore.validate(await CryptoUtils.decrypt(payloadRef.current, password));
-            if (importedRef.current || revisionRef.current === 0 || CryptoUtils.needsUpgrade(payloadRef.current)) {
-              const payload = await CryptoUtils.encrypt(loaded, password);
-              const record = await SalaryStore.write(payload, revisionRef.current);
-              revisionRef.current = record.revision; payloadRef.current = payload; setPayload(payload);
-              if (importedRef.current) forgetPasskey();
-              importedRef.current = false; setImportName("");
-              void SalaryOffline.persist();
-            }
-          } catch (e) {
-            setUnlockError(e.message === "解密失敗，密碼錯誤" ? "密碼錯誤，請再試一次" : "解鎖失敗：" + e.message);
-            setUnlockBusy(false);
-            busyRef.current = false;
-            return false;
-          }
-          setUnlockBusy(false);
-          busyRef.current = false;
-          setUnlockError("");
-          if (!loaded.salaryData || !loaded.nhiData) {
-            alert("內嵌資料格式錯誤");
-            return false;
-          }
-          if (loaded["其他(92)Data"] && !loaded.welfareData) {
-            loaded.welfareData = loaded["其他(92)Data"];
-          }
-          authRef.current = true;
-          setAuthenticated(true);
-          if (dataRef.current) {
-            passwordRef.current = password;
-            setPasskeyMessage("");
-            void autoFaceRef.current?.resume();
-            return true;
-          }
+        const enter = (loaded) => {
+          if (loaded["其他(92)Data"] && !loaded.welfareData) loaded.welfareData = loaded["其他(92)Data"];
           const migrated = migrateData(loaded);
           dataRef.current = migrated;
           setAllData(migrated);
           setSalaryRecs(migrated.salaryData);
-          passwordRef.current = password;
           setIsEditing(false);
-          // 舊格式（較少 PBKDF2 迭代）→ 標成未儲存，提醒按「更新 HTML」升級
           dirtyRef.current = false; setIsDirty(false);
-          setSaveMessage("已儲存於這部手機");
-          setSecurityNote(securityNoteFor(password, false));
-          setPasskeyMessage("");
-          void autoFaceRef.current?.resume();
+          authRef.current = true; setAuthenticated(true);
+          setLoginError("");
+        };
+
+        // 記住新金鑰；瀏覽器不允許時這次仍可使用。
+        const remember = async (key, fresh) => {
+          keyRef.current = key; setHasKey(true);
+          if (fresh && !(await LinkKey.save(key))) setSaveMessage("這個瀏覽器無法記住登入，下次仍需用專屬連結開啟。");
+        };
+
+        // 用金鑰開啟手機裡的資料；沒有資料或是舊格式時只記住金鑰，等待匯入。
+        const useKey = async (key, fresh) => {
+          const payload = payloadRef.current;
+          if (!SalaryStore.isCurrent(payload)) {
+            setLegacy(!!payload);
+            await remember(key, fresh);
+            return true;
+          }
+          let loaded;
+          try { loaded = await SalaryStore.open(key, payload); }
+          catch (error) {
+            if (error.code !== "wrong-key") { setLoginError("讀取失敗：" + error.message); return false; }
+            if (!fresh) await LinkKey.forget();
+            setLoginError(fresh ? "這條專屬連結打不開手機裡的資料。" : "這條專屬連結已失效，請用新的專屬連結開啟。");
+            return false;
+          }
+          await remember(key, fresh);
+          enter(loaded);
           return true;
         };
 
-        const handlePasskeyLogin = async () => {
-          if (busyRef.current) return;
-          busyRef.current = true;
-          setPasskeyBusy(true);
-          setPasskeyMessage("");
-          try {
-            const password = await SalaryPasskey.unlockPasskey();
-            busyRef.current = false;
-            if (!(await handleUnlock(password))) {
-              setPasskeyMessage("資料密碼可能已變更，請使用密碼登入並重新設定免密登入。");
-            }
-          } catch (error) {
-            setPasskeyMessage(SalaryPasskey.passkeyError(error));
-          } finally { busyRef.current = false; setPasskeyBusy(false); void autoFaceRef.current?.resume(); }
-        };
-
-        const handlePasskeySetup = async () => {
-          if (busyRef.current) return;
-          busyRef.current = true;
-          setPasskeyBusy(true);
-          setPasskeyMessage("");
-          try {
-            const result = passkeyPending
-              ? await SalaryPasskey.completeRegistration(passwordRef.current)
-              : await SalaryPasskey.enrollPasskey(passwordRef.current);
-            setPasskeyPending(!!result.pending);
-            if (result.ready) setPasskeyReady(true);
-            setPasskeyMessage(result.pending
-              ? "已建立通行金鑰。請再點「完成 Face ID 設定」，完成第二次驗證。"
-              : "已啟用，每次開啟或回到網站會自動啟動 Face ID。");
-          } catch (error) {
-            setPasskeyMessage(SalaryPasskey.passkeyError(error));
-          } finally { busyRef.current = false; setPasskeyBusy(false); void autoFaceRef.current?.resume(); }
-        };
-
-        const loginRef = useRef(handlePasskeyLogin);
-        loginRef.current = handlePasskeyLogin;
         useEffect(() => {
-          const auto = FaceIDCore.autoLogin({
-            enabled: () => !importedRef.current && !!payloadRef.current && SalaryPasskey.hasPasskey(),
-            unlocked: () => authRef.current,
-            busy: () => busyRef.current || writeBusyRef.current,
-            suspend: () => {
-              authRef.current = false;
-              passwordRef.current = null;
-              setAuthenticated(false);
-              setShowSettings(false); setShowChangePassword(false);
-            },
-            unlock: () => loginRef.current(),
-          });
-          autoFaceRef.current = auto;
-          let skip = false;
-          try {
-            skip = sessionStorage.getItem('salary.skip-auto-face') === '1';
-            sessionStorage.removeItem('salary.skip-auto-face');
-          } catch { /* storage unavailable */ }
-          if (!skip && !loadingData) void auto.start();
-          skipAutoRef.current = skip;
-          return () => auto.dispose();
+          let active = true;
+          (async () => {
+            let found = null;
+            try { found = await LinkKey.current(); } catch (error) { setLoginError(error.message); }
+            try {
+              const record = await SalaryStore.read();
+              if (record) { payloadRef.current = record.payload; revisionRef.current = record.revision; }
+            } catch (error) { if (active) { setLoginError(error.message); setLoading(false); } return; }
+            if (!active) return;
+            if (found && !(await useKey(found.key, found.fresh)) && found.fresh) {
+              // 網址上的連結不對時，仍可用這台裝置記住的金鑰。
+              const saved = await LinkKey.load();
+              if (saved && active) await useKey(saved, false);
+            }
+            if (active) setLoading(false);
+          })();
+          return () => { active = false; };
         }, []);
 
-        const forgetPasskey = () => {
-          try { SalaryPasskey.forgetPasskey(); }
-          catch (error) { setPasskeyMessage(SalaryPasskey.passkeyError(error)); return; }
-          setPasskeyPending(false);
-          setPasskeyReady(false);
-          setPasskeyMessage("已停用此瀏覽器的免密登入。");
+        const handlePaste = async () => {
+          if (busyRef.current) return;
+          busyRef.current = true; setBusy(true); setLoginError("");
+          try { await useKey(await LinkKey.fromClipboard(), true); }
+          catch (error) { setLoginError(error.message); }
+          finally { busyRef.current = false; setBusy(false); }
         };
 
-        const handleLock = async () => {
+        const saveLocal = (data) => {
+          const version = ++writeVersionRef.current;
+          const snapshot = JSON.parse(JSON.stringify(data));
+          writeBusyRef.current = true; dirtyRef.current = true;
+          setIsDirty(true); setSaveMessage("正在加密儲存…"); setBackupPayload("");
+          const task = writeRef.current.then(async () => {
+            if (version !== writeVersionRef.current) return;
+            const payload = await SalaryStore.seal(keyRef.current, snapshot);
+            const record = await SalaryStore.write(payload, revisionRef.current);
+            revisionRef.current = record.revision; payloadRef.current = payload;
+            if (version === writeVersionRef.current) {
+              dirtyRef.current = false; setIsDirty(false); setSaveMessage("已儲存於這部手機");
+            }
+          });
+          writeRef.current = task.catch(error => {
+            if (version === writeVersionRef.current) setSaveMessage(error.message);
+          }).finally(() => {
+            if (version === writeVersionRef.current) writeBusyRef.current = false;
+          });
+          return task;
+        };
+        const updateSalary = (newData) => {
+          const data = { ...dataRef.current, salaryData: newData };
+          dataRef.current = data; setAllData(data); setSalaryRecs(newData);
+          void saveLocal(data).catch(() => {});
+        };
+        const updateAllData = (key) => (newData) => {
+          const data = { ...dataRef.current, [key]: newData };
+          dataRef.current = data; setAllData(data);
+          void saveLocal(data).catch(() => {});
+        };
+        const getExportData = () => dataRef.current;
+
+        // 匯入的檔案必須用目前的金鑰解得開，驗證後才取代手機資料。
+        const handleImport = async (file) => {
+          if (!file || !keyRef.current || busyRef.current || writeBusyRef.current) return;
+          const report = message => { setLoginError(message); setSettingsMessage(message); };
+          busyRef.current = true; setBusy(true); report("");
+          try {
+            if (dirtyRef.current) throw new Error("目前資料尚未儲存，請先匯出加密備份，再重新開啟後匯入。");
+            if (file.size > 20 * 1024 * 1024) throw new Error("檔案過大。");
+            const payload = SalaryStore.extract(await file.text());
+            const loaded = await SalaryStore.open(keyRef.current, payload);
+            if (SalaryStore.isCurrent(payloadRef.current) && !confirm("匯入後會取代手機資料。請先保留最新加密備份；是否繼續？")) return;
+            const record = await SalaryStore.write(payload, revisionRef.current);
+            revisionRef.current = record.revision; payloadRef.current = payload;
+            setLegacy(false); setShowSettings(false); setBackupPayload("");
+            void SalaryOffline.persist();
+            enter(loaded);
+            setSaveMessage("");
+          } catch (error) { report(error.message); }
+          finally { busyRef.current = false; setBusy(false); }
+        };
+
+        // 移除這台裝置記住的金鑰；手機裡的加密資料保留，之後用專屬連結再開啟。
+        const handleForget = async () => {
           await writeRef.current;
-          if (dirtyRef.current) { setSaveMessage("尚未儲存成功，請先匯出加密備份再鎖定。"); return; }
-          dirtyRef.current = false;
-          passwordRef.current = null;
-          try { sessionStorage.setItem('salary.skip-auto-face', '1'); } catch {
-            authRef.current = false; setAuthenticated(false); setShowSettings(false);
-            setAllData(null); setSalaryRecs([]); return;
-          }
+          if (dirtyRef.current) { setSettingsMessage("尚未儲存成功，請先匯出加密備份再移除。"); return; }
+          if (!confirm("移除後需要再用專屬連結開啟。手機裡的加密資料會保留；是否繼續？")) return;
+          if (!(await LinkKey.forget())) { setSettingsMessage("無法移除登入，請允許網站儲存後再試。"); return; }
           location.reload();
         };
 
-        const handleSaveHtml = async (password) => {
+        const handleExport = async () => {
           try {
-            if (writeBusyRef.current) { setPasskeyMessage("請等本機儲存完成再匯出。"); return false; }
+            if (writeBusyRef.current) { setSettingsMessage("請等本機儲存完成再匯出。"); return false; }
             if (dirtyRef.current && !backupPayload) {
-              setBackupPayload(await CryptoUtils.encrypt(getExportData(), password));
-              setPasskeyMessage("加密備份已準備，請再按「儲存加密副本」。");
+              setBackupPayload(await SalaryStore.seal(keyRef.current, getExportData()));
+              setSettingsMessage("加密備份已準備，請再按「儲存加密副本」。");
               return false;
             }
             const saved = await SalaryStore.backup(backupPayload || payloadRef.current);
-            if (saved) { setPasskeyMessage("已開啟加密備份儲存，請確認檔案已存到「我的 iPhone」或電腦。"); setBackupPayload(""); }
+            if (saved) { setSettingsMessage("已開啟加密備份儲存，請確認檔案已存到「我的 iPhone」或電腦。"); setBackupPayload(""); }
             return saved;
           } catch (e) {
-            setPasskeyMessage("匯出失敗：" + e.message);
+            setSettingsMessage("匯出失敗：" + e.message);
             return false;
           }
-        };
-
-        // 改密碼＝用新密碼重新加密並寫回 HTML；取消存檔則維持舊密碼
-        const handleChangePassword = async (newPassword) => {
-          setShowChangePassword(false);
-          await writeRef.current;
-          busyRef.current = true;
-          try {
-            await saveLocal(getExportData(), newPassword);
-            passwordRef.current = newPassword; forgetPasskey();
-            setSecurityNote(securityNoteFor(newPassword, false));
-            setSaveMessage("密碼已更新，請重新啟用 Face ID 並匯出新備份。");
-          } catch (error) { setSaveMessage(error.message); }
-          finally { busyRef.current = false; void autoFaceRef.current?.resume(); }
         };
 
         const addNewYear = () => {
@@ -2403,7 +2306,7 @@
             nhiData: updatedNhiData,
           };
           dataRef.current = data; setAllData(data); setSalaryRecs(updatedSalaryRecs);
-          void saveLocal(data, passwordRef.current).catch(() => {});
+          void saveLocal(data).catch(() => {});
 
           if (!isEditing) setIsEditing(true);
 
@@ -2420,16 +2323,13 @@
 
         if (!authenticated || !allData) return (
           <SalaryMobile.Login
-            hasCredential={passkeyReady && !importedRef.current}
-            hasData={!!embeddedPayload}
-            busy={unlockBusy || passkeyBusy}
-            error={passkeyMessage || unlockError}
-            onPassword={(password) => { setPasskeyMessage(""); return handleUnlock(password); }}
-            onPasskey={handlePasskeyLogin}
+            hasKey={hasKey}
+            legacy={legacy}
+            busy={busy}
+            loading={loading}
+            error={loginError}
+            onPaste={handlePaste}
             onImport={handleImport}
-            onCancelImport={cancelImport}
-            importName={importName}
-            loading={loadingData}
           />
         );
 
@@ -2441,35 +2341,21 @@
               editing={isEditing}
               dirty={isDirty}
               onEdit={() => setIsEditing(!isEditing)}
-              onLock={handleLock}
-              onSettings={() => setShowSettings(true)}
+              onSettings={() => { setSettingsMessage(""); setShowSettings(true); }}
             />
-            <SalaryMobile.Offline busy={isDirty || unlockBusy || passkeyBusy || writeBusyRef.current} />
-            <ChangePasswordModal
-              isOpen={showChangePassword}
-              currentPassword={passwordRef.current}
-              onConfirm={handleChangePassword}
-              onCancel={() => setShowChangePassword(false)}
-            />
+            <SalaryMobile.Offline quiet busy={isDirty || busy || writeBusyRef.current} />
             {showSettings && (
               <SalaryMobile.Settings
                 onClose={() => setShowSettings(false)}
-                ready={passkeyReady}
-                pending={passkeyPending}
-                busy={passkeyBusy || writeBusyRef.current}
-                supported={passkeySupported}
-                message={passkeyMessage}
-                securityNote={securityNote}
-                onSetup={handlePasskeySetup}
-                onForget={forgetPasskey}
-                onChangePassword={() => { setShowSettings(false); setShowChangePassword(true); }}
-                onExport={() => handleSaveHtml(passwordRef.current)}
+                busy={busy || writeBusyRef.current}
+                message={settingsMessage}
+                onExport={handleExport}
                 onImport={handleImport}
+                onForget={handleForget}
               />
             )}
             <main className="content-area" role="tabpanel" aria-label={tabs[activeTab]}>
-              {isDirty && <p className="inline-notice">尚未儲存完成，請等待「已儲存於這部手機」再關閉。</p>}
-              {saveMessage && <p className="inline-notice" role="status">{saveMessage}</p>}
+              {saveMessage && <p className={SAVE_STATES.includes(saveMessage) ? "save-state" : "inline-notice"} role="status">{saveMessage}</p>}
               {isEditing && (activeTab === 0 || activeTab === 2) && (
                 <div className="edit-toolbar"><button className="btn btn-ghost" onClick={addNewYear}>＋ 新增年度</button></div>
               )}
@@ -2488,14 +2374,9 @@
       const root = ReactDOM.createRoot(document.getElementById("root"));
       root.render(<App />);
     </script>
-    <!-- 內嵌的加密薪資資料（AES-256-GCM + PBKDF2，CryptoUtils.encrypt 輸出）。由「更新 HTML」改寫，勿手動編輯。 -->
-    <script type="text/plain" id="embedded-data"></script>
-    <!-- 必須是 body 最後一個 script：在 Babel/React 改動 DOM 前保存原始頁面。
-         找不到 dashboard-common.js（HTML 被移到別的資料夾）時改顯示提示，而不是一片白。 -->
+    <!-- 找不到 dashboard-common.js（HTML 被移到別的資料夾）時改顯示提示，而不是一片白。 -->
     <script>
-      if (window.EmbeddedStore) {
-        EmbeddedStore.snapshot();
-      } else {
+      if (!window.formatMoney) {
         document.body.insertAdjacentHTML(
           "afterbegin",
           '<p style="margin:40px auto;max-width:560px;padding:16px 20px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb;color:#92400e;font:15px/1.6 sans-serif">' +

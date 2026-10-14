@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0;url=salary.html">
   <title>薪資看板</title>
+  <!-- 保留網址的 #k= 專屬連結金鑰；meta refresh 會丟掉 hash。 -->
+  <script>location.replace('salary.html' + location.hash);</script>
+  <noscript><meta http-equiv="refresh" content="0;url=salary.html"></noscript>
 </head>
 <body><a href="salary.html">開啟薪資看板</a></body>
 </html>
