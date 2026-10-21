@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="dashboard-common.css?v=20261013-mobile3">
     <script src="dashboard-common.js?v=20261014-link1"></script>
     <script src="link-key.js?v=20261014-link1"></script>
+    <script src="open-guide.js?v=20261021-guide1"></script>
     <script src="salary-store.js?v=20261014-link1"></script>
     <script src="salary-offline.js"></script>
     <script src="salary-mobile.js?v=20261014-link1"></script>
@@ -2140,6 +2141,8 @@
         useEffect(() => {
           let active = true;
           (async () => {
+            // LINE 等內建瀏覽器帶著連結開啟：先請使用者改用瀏覽器，選「先在這裡使用」才讀金鑰。
+            await OpenGuide.gate();
             let found = null;
             try { found = await LinkKey.current(); } catch (error) { setLoginError(error.message); }
             try {
@@ -2147,11 +2150,13 @@
               if (record) { payloadRef.current = record.payload; revisionRef.current = record.revision; }
             } catch (error) { if (active) { setLoginError(error.message); setLoading(false); } return; }
             if (!active) return;
-            if (found && !(await useKey(found.key, found.fresh)) && found.fresh) {
+            const opened = found && await useKey(found.key, found.fresh);
+            if (found && !opened && found.fresh) {
               // 網址上的連結不對時，仍可用這台裝置記住的金鑰。
               const saved = await LinkKey.load();
               if (saved && active) await useKey(saved, false);
             }
+            if (opened && active) OpenGuide.afterLogin({ fresh: found.fresh });
             if (active) setLoading(false);
           })();
           return () => { active = false; };
