@@ -1,10 +1,8 @@
 /* ============================================================================
    Shared utilities & components for the salary / billing dashboards.
 
-   Loaded as a CLASSIC <script> (NOT type="text/babel"), so the browser never
-   has to fetch it through Babel. That keeps these files openable directly via
-   file:// — the JSX components below are written with React.createElement
-   instead of JSX precisely so no in-browser Babel transform is required here.
+   Loaded as a classic <script> before salary-app.js; written with
+   React.createElement, so it needs no JSX build step.
 
    Requires React (and, for ChartView, Chart.js) to be loaded beforehand.
    Exposes: formatMoney, ChartView, DeltaBadge, drawHaloText, useUnloadGuard,
@@ -180,7 +178,7 @@
     );
   }
 
-  // ---- Expose as globals for the inline Babel scripts ----------------------
+  // ---- Expose as globals for salary-app.js ---------------------------------
   window.formatMoney = formatMoney;
   window.ChartView = ChartView;
   window.DeltaBadge = DeltaBadge;
