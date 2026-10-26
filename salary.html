@@ -2048,6 +2048,7 @@
         const [loginError, setLoginError] = useState("");
         const [showSettings, setShowSettings] = useState(false);
         const [saveMessage, setSaveMessage] = useState("");
+        const BACKUP_DAYS = 7;
         // 儲存中／已儲存只是短暫提示，不佔版面；錯誤才用常駐提示。
         const SAVE_STATES = ["正在加密儲存…", "已儲存於這部手機"];
         useEffect(() => {
@@ -2061,13 +2062,18 @@
         // 網址金鑰（不可匯出的 CryptoKey）；只存在記憶體與這個網站的 IndexedDB。
         const keyRef = useRef(null);
         const [hasKey, setHasKey] = useState(false);
-        const [legacy, setLegacy] = useState(false);
+        // 為什麼要匯入："legacy" 手機裡是舊格式資料；"other-key" 手機資料不是這把金鑰加密的。
+        const [importReason, setImportReason] = useState("");
         const payloadRef = useRef("");
         const revisionRef = useRef(0);
         const writeRef = useRef(Promise.resolve());
         const writeBusyRef = useRef(false);
         const writeVersionRef = useRef(0);
         const [backupPayload, setBackupPayload] = useState("");
+        // 手機資料最後儲存與最後備份的時間：有修改未備份、且上次備份超過 7 天時提醒。
+        const [savedAt, setSavedAt] = useState(null);
+        const [backupAt, setBackupAt] = useState(null);
+        const backupDue = !!savedAt && (!backupAt || savedAt > backupAt) && Date.now() - (backupAt ? Date.parse(backupAt) : 0) > BACKUP_DAYS * 864e5;
 
         useEffect(() => {
           dirtyRef.current = isDirty;
@@ -2118,10 +2124,11 @@
         };
 
         // 用金鑰開啟手機裡的資料；沒有資料或是舊格式時只記住金鑰，等待匯入。
+        // 金鑰打不開手機資料時回傳 null，由呼叫端決定改用別的金鑰或等待匯入。
         const useKey = async (key, fresh) => {
           const payload = payloadRef.current;
           if (!SalaryStore.isCurrent(payload)) {
-            setLegacy(!!payload);
+            setImportReason(payload ? "legacy" : "");
             await remember(key, fresh);
             return true;
           }
@@ -2129,12 +2136,16 @@
           try { loaded = await SalaryStore.open(key, payload); }
           catch (error) {
             if (error.code !== "wrong-key") { setLoginError("讀取失敗：" + error.message); return false; }
-            if (!fresh) await LinkKey.forget();
-            setLoginError(fresh ? "這條專屬連結打不開手機裡的資料。" : "這條專屬連結已失效，請用新的專屬連結開啟。");
-            return false;
+            return null;
           }
           await remember(key, fresh);
           enter(loaded);
+          return true;
+        };
+        // 換了連結（或資料損毀，兩者分不出來）：不刪金鑰，改為等待匯入這條連結加密的備份。
+        const awaitImport = async (key, fresh) => {
+          setImportReason("other-key");
+          await remember(key, fresh);
           return true;
         };
 
@@ -2147,15 +2158,17 @@
             try { found = await LinkKey.current(); } catch (error) { setLoginError(error.message); }
             try {
               const record = await SalaryStore.read();
-              if (record) { payloadRef.current = record.payload; revisionRef.current = record.revision; }
+              if (record) { payloadRef.current = record.payload; revisionRef.current = record.revision; setSavedAt(record.savedAt || null); }
+              setBackupAt(await SalaryStore.backedUpAt());
             } catch (error) { if (active) { setLoginError(error.message); setLoading(false); } return; }
             if (!active) return;
-            const opened = found && await useKey(found.key, found.fresh);
-            if (found && !opened && found.fresh) {
-              // 網址上的連結不對時，仍可用這台裝置記住的金鑰。
+            let opened = found ? await useKey(found.key, found.fresh) : false;
+            if (opened === null && found.fresh) {
+              // 網址上的連結打不開手機資料時，先用這台裝置記住的金鑰。
               const saved = await LinkKey.load();
-              if (saved && active) await useKey(saved, false);
+              if (saved && active && await useKey(saved, false)) opened = true;
             }
+            if (opened === null && active) opened = await awaitImport(found.key, found.fresh);
             if (opened && active) OpenGuide.afterLogin({ fresh: found.fresh });
             if (active) setLoading(false);
           })();
@@ -2165,7 +2178,10 @@
         const handlePaste = async () => {
           if (busyRef.current) return;
           busyRef.current = true; setBusy(true); setLoginError("");
-          try { await useKey(await LinkKey.fromClipboard(), true); }
+          try {
+            const key = await LinkKey.fromClipboard();
+            if ((await useKey(key, true)) === null) await awaitImport(key, true);
+          }
           catch (error) { setLoginError(error.message); }
           finally { busyRef.current = false; setBusy(false); }
         };
@@ -2179,7 +2195,7 @@
             if (version !== writeVersionRef.current) return;
             const payload = await SalaryStore.seal(keyRef.current, snapshot);
             const record = await SalaryStore.write(payload, revisionRef.current);
-            revisionRef.current = record.revision; payloadRef.current = payload;
+            revisionRef.current = record.revision; payloadRef.current = payload; setSavedAt(record.savedAt);
             if (version === writeVersionRef.current) {
               dirtyRef.current = false; setIsDirty(false); setSaveMessage("已儲存於這部手機");
             }
@@ -2215,8 +2231,10 @@
             const loaded = await SalaryStore.open(keyRef.current, payload);
             if (SalaryStore.isCurrent(payloadRef.current) && !confirm("匯入後會取代手機資料。請先保留最新加密備份；是否繼續？")) return;
             const record = await SalaryStore.write(payload, revisionRef.current);
-            revisionRef.current = record.revision; payloadRef.current = payload;
-            setLegacy(false); setShowSettings(false); setBackupPayload("");
+            revisionRef.current = record.revision; payloadRef.current = payload; setSavedAt(record.savedAt);
+            // 匯入的檔案本身就是一份手機外的備份。
+            setBackupAt(await SalaryStore.markBackup());
+            setImportReason(""); setShowSettings(false); setBackupPayload("");
             void SalaryOffline.persist();
             enter(loaded);
             setSaveMessage("");
@@ -2242,7 +2260,7 @@
               return false;
             }
             const saved = await SalaryStore.backup(backupPayload || payloadRef.current);
-            if (saved) { setSettingsMessage("已開啟加密備份儲存，請確認檔案已存到「我的 iPhone」或電腦。"); setBackupPayload(""); }
+            if (saved) { setBackupAt(await SalaryStore.markBackup()); setSettingsMessage("已開啟加密備份儲存，請確認檔案已存到「我的 iPhone」或電腦。"); setBackupPayload(""); }
             return saved;
           } catch (e) {
             setSettingsMessage("匯出失敗：" + e.message);
@@ -2329,7 +2347,7 @@
         if (!authenticated || !allData) return (
           <SalaryMobile.Login
             hasKey={hasKey}
-            legacy={legacy}
+            importReason={importReason}
             busy={busy}
             loading={loading}
             error={loginError}
@@ -2345,6 +2363,7 @@
               editable={editableTab}
               editing={isEditing}
               dirty={isDirty}
+              backupDue={backupDue}
               onEdit={() => setIsEditing(!isEditing)}
               onSettings={() => { setSettingsMessage(""); setShowSettings(true); }}
             />
@@ -2354,6 +2373,8 @@
                 onClose={() => setShowSettings(false)}
                 busy={busy || writeBusyRef.current}
                 message={settingsMessage}
+                backupAt={backupAt}
+                backupDue={backupDue}
                 onExport={handleExport}
                 onImport={handleImport}
                 onForget={handleForget}

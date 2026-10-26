@@ -19,14 +19,32 @@
     });
     return opened;
   }
-  async function read() {
+  async function get(id) {
     const connection = await db();
     return new Promise((resolve, reject) => {
       const transaction = connection.transaction('vault');
-      const request = transaction.objectStore('vault').get('main');
+      const request = transaction.objectStore('vault').get(id);
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(new Error('讀取手機資料失敗。'));
     });
+  }
+  const read = () => get('main');
+  // 上次匯出或匯入加密備份的時間，和資料分開存，不影響 revision；讀寫失敗只會少了提醒。
+  async function backedUpAt() {
+    try { return (await get('backup'))?.at || null; } catch { return null; }
+  }
+  async function markBackup() {
+    const at = new Date().toISOString();
+    try {
+      const connection = await db();
+      await new Promise((resolve, reject) => {
+        const transaction = connection.transaction('vault', 'readwrite');
+        transaction.objectStore('vault').put({ at }, 'backup');
+        transaction.oncomplete = resolve;
+        transaction.onabort = transaction.onerror = () => reject(transaction.error);
+      });
+    } catch { /* 只影響提醒 */ }
+    return at;
   }
   async function write(payload, expectedRevision) {
     if (!isCurrent(payload)) throw new Error('拒絕儲存未加密的資料。');
@@ -95,5 +113,5 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     return true;
   }
-  window.SalaryStore = { read, write, extract, validate, seal, open, isCurrent, backup };
+  window.SalaryStore = { read, backedUpAt, markBackup, write, extract, validate, seal, open, isCurrent, backup };
 })();

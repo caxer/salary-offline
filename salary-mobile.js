@@ -19,11 +19,14 @@
     return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, h("path", { d: paths[name] || paths.salary }));
   }
   // 沒有密碼欄：沒有金鑰時只能用專屬連結開啟；有金鑰但手機沒有資料時匯入加密備份。
-  function Login({ hasKey, legacy, busy, loading, error, onPaste, onImport }) {
+  function Login({ hasKey, importReason, busy, loading, error, onPaste, onImport }) {
     const needsImport = hasKey && !loading;
     const title = loading ? "正在開啟…" : needsImport ? "匯入薪資資料" : "用專屬連結開啟";
-    // 只在舊格式資料時多一行說明，其餘說明放在按鈕提示。
-    const text = needsImport && legacy ? "手機裡是舊格式資料，匯入轉換後的檔案即可取代。" : "";
+    // 只在手機資料無法直接開啟時多一行說明，其餘說明放在按鈕提示。
+    const otherKey = needsImport && importReason === "other-key";
+    const text = !needsImport ? "" : importReason === "legacy" ? "手機裡是舊格式資料，匯入轉換後的檔案即可取代。"
+      : otherKey ? "手機資料不是這條連結加密的，請匯入備份。" : "";
+    const paste = (className, ...label) => h("button", { type: "button", className, onClick: onPaste, disabled: busy, title: "點過一次專屬連結，這部手機就會記住。主畫面 App 第一次請先複製連結再按這裡。連結就是鑰匙，請勿轉傳。" }, ...label);
     return h("main", { className: "login-page" },
       h("div", { className: "login-brand" }, h("span", { className: "brand-mark" }, h(Icon, { name: "salary", size: 25 })), "薪資看板"),
       h("div", { className: "login-intro" }, h("h1", null, "每一份收入，", h("br"), "好好掌握。")),
@@ -31,7 +34,8 @@
         h("span", { className: "login-lock" }, h(Icon, { name: "link", size: 28 })),
         h("h2", null, title), text ? h("p", { className: "muted" }, text) : null,
         loading ? null : needsImport ? h(ImportButton, { onImport, busy })
-          : h("button", { type: "button", className: "btn primary full", onClick: onPaste, disabled: busy, title: "點過一次專屬連結，這部手機就會記住。主畫面 App 第一次請先複製連結再按這裡。連結就是鑰匙，請勿轉傳。" }, h(Icon, { name: "link" }), busy ? "正在開啟…" : "貼上專屬連結"),
+          : paste("btn primary full", h(Icon, { name: "link" }), busy ? "正在開啟…" : "貼上專屬連結"),
+        otherKey ? paste("text-button full", "貼上專屬連結") : null,
         error ? h("p", { role: "status", className: "login-error" }, error) : null),
       h(Offline, { busy: busy || loading }));
   }
@@ -56,12 +60,15 @@
       h("span", null, state.ready ? "離線已就緒" : state.error || "正在準備離線使用…"),
       state.update ? h("button", { type: "button", className: "text-button", disabled: busy, onClick: SalaryOffline.update }, "更新程式") : null);
   }
-  function Header({ title, editing, editable, dirty, onEdit, onSettings }) {
+  // 上次備份日期（tooltip 用）；沒有時顯示「尚未備份」。
+  const backupLabel = at => at ? "上次備份：" + new Date(at).toLocaleDateString("zh-TW") : "尚未備份";
+  function Header({ title, editing, editable, dirty, backupDue, onEdit, onSettings }) {
     return h("header", { className: "mobile-header" },
       h("div", { className: "mobile-heading" }, h("span", { className: "eyebrow" }, "薪資看板"), h("h1", null, title)),
       h("div", { className: "mobile-header-actions" },
         editable ? h("button", { className: "btn edit-button", onClick: onEdit }, editing ? "完成編輯" : "編輯") : null,
-        h("button", { className: "icon-button", onClick: onSettings, "aria-label": "設定與更多", "aria-haspopup": "dialog" }, h(Icon, { name: "menu" }), dirty ? h("span", { className: "unsaved-dot" }) : null)));
+        h("button", { className: "icon-button", onClick: onSettings, "aria-label": "設定與更多", "aria-haspopup": "dialog", title: backupDue ? "有修改還沒備份，請儲存加密副本" : undefined },
+          h(Icon, { name: "menu" }), dirty ? h("span", { className: "unsaved-dot" }) : backupDue ? h("span", { className: "unsaved-dot backup-due", "data-testid": "backup-due" }) : null)));
   }
   function Nav({ tabs, activeTab, onChange }) {
     const icons = ["salary", "growth", "health", "gift", "income"];
@@ -69,7 +76,7 @@
     return h("nav", { className: "bottom-nav", role: "tablist", "aria-label": "薪資看板分頁" }, tabs.map((title, index) =>
       h("button", { key: title, role: "tab", "aria-label": title, "aria-selected": index === activeTab, className: index === activeTab ? "active" : "", onClick: () => onChange(index) }, h(Icon, { name: icons[index] }), h("span", null, labels[index]))));
   }
-  function Settings({ onClose, busy, message, onExport, onImport, onForget }) {
+  function Settings({ onClose, busy, message, backupAt, backupDue, onExport, onImport, onForget }) {
     const ref = useRef(null);
     useEffect(() => {
       const dialog = ref.current;
@@ -84,7 +91,8 @@
         h("div", { className: "sheet-title" }, h("h2", { id: "settings-title" }, "設定與更多"), h("button", { className: "icon-button", onClick: onClose, disabled: busy, "aria-label": "關閉設定" }, h(Icon, { name: "close" }))),
         message ? h("p", { className: "settings-message", role: "status" }, message) : null,
         h("section", { className: "settings-section" },
-          h("button", { className: "settings-row", onClick: onExport, disabled: busy, title: "編輯會自動加密存在這部手機；備份請存到「我的 iPhone」或電腦" }, h("span", null, "儲存加密副本"), h(Icon, { name: "arrow", size: 18 })),
+          h("button", { className: "settings-row", onClick: onExport, disabled: busy, title: backupLabel(backupAt) + "。編輯會自動加密存在這部手機；備份請存到「我的 iPhone」或電腦" },
+            h("span", null, "儲存加密副本", backupDue ? h("span", { className: "row-dot", "aria-hidden": true }) : null), h(Icon, { name: "arrow", size: 18 })),
           h(ImportButton, { onImport, busy, row: true }),
           h("button", { className: "settings-row", onClick: onForget, disabled: busy, title: "之後需要再用專屬連結開啟；手機裡的加密資料保留" }, h("span", null, "登出此裝置"), h(Icon, { name: "arrow", size: 18 })))));
   }
